@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include "ahead.h"
+#include "midi.h"
 #include "engine.h"
 #include "gfx.h"
 #include "log.h"
@@ -1859,6 +1860,139 @@ int main(int argc, char **argv)
         int same = as.short_frames == 0 && memcmp(direct, via, (size_t)frames * 4) == 0;
         printf("render ahead: at 60%% load, late pairs made in the request %d of 23, made ahead %d (want under 2); "
                "same sound %d\n", late_direct, late_ahead, same);
+
+        /* the TrimUI's split: the voices and the effects on two threads, a
+         * block apart, and still the same sound, sample for sample, through
+         * a busy patch (every voice family, every effect up, a chord change) */
+        song_default();
+        for (int p = 0; p < NFX; p++)
+            song.fx[p] = fparam_def(p)->max;
+        song.sp[1][SP_VOICE] = 4, song.sp[2][SP_VOICE] = VOICE_PERC(PC_BOWL);
+        song.gp[GP_CHANGES] = 1;
+        engine_init(RATE);
+        engine_set_playing(1);
+        int split_ok = ahead_start_split(RATE, 256, 1024, 0, -1, -1);
+        for (int i = 0; i < frames; i += 1024) {
+            while (ahead_ready() < 1024)
+                sleep_until(mono_s() + 0.001);
+            ahead_read(via + 2 * i, 1024);
+        }
+        ahead_take_stats(&as);
+        ahead_stop();
+        int split_short = (int)as.short_frames;
+        song_default();
+        for (int p = 0; p < NFX; p++)
+            song.fx[p] = fparam_def(p)->max;
+        song.sp[1][SP_VOICE] = 4, song.sp[2][SP_VOICE] = VOICE_PERC(PC_BOWL);
+        song.gp[GP_CHANGES] = 1;
+        engine_init(RATE);
+        engine_set_playing(1);
+        for (int i = 0; i < frames; i += 256)
+            engine_render(direct + 2 * i, 256);
+        int split_same = split_short == 0 && memcmp(direct, via, (size_t)frames * 4) == 0;
+        printf("render split: two threads %d, voices %.1f%% and effects %.1f%% of the work; same sound %d\n", split_ok,
+               100.0 * as.us_voices / fmax(1, as.us_voices + as.us_effects),
+               100.0 * as.us_effects / fmax(1, as.us_voices + as.us_effects), split_same);
+    }
+
+    /* USB MIDI (midi.c), bytes in as from a port: a key tunes a free string
+     * to itself and plucks it; a clock sets the tempo; START and STOP start
+     * and stop the drone; and the clock out ticks 24 times a beat */
+    {
+        song_default();
+        song.gp[GP_CHANGES] = 0, song.gp[GP_DRIFT] = 0, song.lfo[0][LP_DEPTH] = 0;
+        song.fx[FX_SCOUNT] = 0, song.fx[FX_DMIX] = song.fx[FX_VSEND] = 0;
+        for (int s = 0; s < NS; s++) /* one string, its rings at rest: the key alone */
+            song.on[s] = s == 0, song.sp[s][SP_PON] = song.sp[s][SP_BON] = 0, song.sp[s][SP_BOW] = 0;
+        engine_init(RATE);
+        engine_set_playing(1);
+        midi_reset();
+        engine_render(pcm, RATE / 2);
+        uint64_t t = 1000000;
+        const uint8_t on[] = {0x90, 57, 100}; /* A3, 220 Hz */
+        midi_feed(on, 3, t);
+        engine_render(pcm, RATE * 2);
+        double key_hz = hz_yin(pcm, RATE, RATE / 4);
+        const uint8_t off[] = {0x80, 57, 0};
+        midi_feed(off, 3, t + 2000000);
+        printf("midi key: A3 -> %.1f Hz (want 220: %d), string tuned %.2f\n", key_hz, fabs(key_hz - 220.0) < 2.0,
+               engine_string_pitch(0));
+
+        song_default();
+        engine_init(RATE);
+        engine_set_playing(0);
+        midi_reset();
+        const uint8_t start = 0xfa, stop = 0xfc, tick = 0xf8;
+        midi_feed(&start, 1, t);
+        int started = live.playing;
+        for (int i = 0; i < 24 * 8; i++) { /* 8 beats at 120 BPM: a tick each 20.833 ms */
+            t += 20833;
+            midi_feed(&tick, 1, t);
+            engine_render(pcm, 1000); /* about the time between ticks */
+        }
+        float bpm_in = engine_bpm();
+        midi_feed(&stop, 1, t);
+        printf("midi clock in: START plays %d, 120 BPM -> %.1f (%d), STOP stops %d\n", started, bpm_in,
+               fabsf(bpm_in - 120.f) < 0.5f, !live.playing);
+
+        song_default();
+        song.gp[GP_BPM] = 120;
+        engine_init(RATE);
+        engine_set_playing(1);
+        midi_reset();
+        midi_set_latency(0.f);
+        uint8_t out[64];
+        int ticks_out = 0, starts = 0, stops = 0;
+        t = 5000000;
+        for (int i = 0; i < 400; i++) { /* 4 s in 10 ms steps */
+            engine_render(pcm, RATE / 100);
+            t += 10000;
+            int n = midi_clock_step(t, out, sizeof out);
+            for (int k = 0; k < n; k++)
+                ticks_out += out[k] == 0xf8, starts += out[k] == 0xfa;
+        }
+        engine_set_playing(0);
+        int n = midi_clock_step(t + 10000, out, sizeof out);
+        for (int k = 0; k < n; k++)
+            stops += out[k] == 0xfc;
+        printf("midi clock out: START %d, %d ticks in 4 s at 120 BPM (want 192: %d), STOP %d\n", starts, ticks_out,
+               abs(ticks_out - 192) <= 1, stops);
+        midi_reset();
+
+        /* the Brick Pro's left stick: bowing by hand, lighter or harder, and
+         * a bend of two semitones */
+        double lvl[2];
+        for (int k = 0; k < 2; k++) {
+            song_default();
+            song.gp[GP_CHANGES] = 0, song.gp[GP_DRIFT] = 0, song.lfo[0][LP_DEPTH] = 0;
+            song.fx[FX_SCOUNT] = 0, song.fx[FX_DMIX] = song.fx[FX_VSEND] = 0;
+            song.gp[GP_SUB] = 0;
+            for (int s = 0; s < NS; s++)
+                song.on[s] = s == 1, song.sp[s][SP_PON] = song.sp[s][SP_BON] = 0, song.sp[s][SP_BOW] = 0;
+            engine_init(RATE);
+            engine_set_playing(1);
+            engine_bow_pressure(1, k ? 1.0f : 0.25f);
+            engine_bow(1, 1);
+            engine_render(pcm, RATE * 3);
+            lvl[k] = live.meter[1];
+            engine_bow(1, 0);
+            engine_bow_pressure(1, 1.f);
+        }
+        song_default();
+        song.gp[GP_CHANGES] = 0, song.gp[GP_DRIFT] = 0, song.lfo[0][LP_DEPTH] = 0;
+        song.fx[FX_SCOUNT] = 0, song.fx[FX_DMIX] = song.fx[FX_VSEND] = 0;
+        for (int s = 0; s < NS; s++)
+            song.on[s] = s == 0, song.sp[s][SP_PON] = song.sp[s][SP_BON] = 0;
+        engine_init(RATE);
+        engine_set_playing(1);
+        engine_render(pcm, RATE * 2);
+        double f_flat = hz_yin(pcm, RATE, RATE / 4);
+        engine_express_bend(0, 2.f);
+        engine_render(pcm, RATE * 2);
+        double f_bent = hz_yin(pcm, RATE, RATE / 4);
+        engine_express_bend(0, 0.f);
+        printf("stick: bow light %.3f, hard %.3f (lighter is softer: %d); bend +2 x%.3f (want 1.122: %d)\n", lvl[0],
+               lvl[1], lvl[0] < lvl[1] * 0.8, f_bent / f_flat, fabs(f_bent / f_flat - 1.1225) < 0.006);
     }
 
     /* DSP benchmark: 30 s of the default drone */

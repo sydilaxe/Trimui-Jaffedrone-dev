@@ -606,6 +606,22 @@ static inline uint32_t xr(void)
 }
 static inline float frand(void) { return (xr() >> 8) * (1.f / 16777216.f); }
 static inline float fnoise(void) { return frand() * 2.f - 1.f; }
+/* the output dither draws from its own generator: it is made by the effects
+ * stage, which may run on another core from the voices (see engine_post) */
+static uint32_t rng_d = 0x2545f491u;
+static inline float dfrand(void)
+{
+    rng_d ^= rng_d << 13;
+    rng_d ^= rng_d >> 17;
+    rng_d ^= rng_d << 5;
+    return (rng_d >> 8) * (1.f / 16777216.f);
+}
+/* triangular dither, its two draws in a fixed order */
+static inline float dither(void)
+{
+    float a = dfrand();
+    return a - dfrand();
+}
 
 static inline float softclip(float x)
 {
@@ -663,6 +679,7 @@ typedef struct {
     int bow_open;   /* bow ring: open on its pulses */
     float bow_env;  /* the bow swell following bow_open */
     int hand;       /* bowed by hand */
+    float hand_p;   /* ... how hard (1: as R1; a stick or MIDI presses less) */
     int over;       /* ... and overblown, or touched at a harmonic */
     float hand_env; /* the hand bow's own swell */
     /* undertones: crossings of a lowpassed copy pulse resonators below */
@@ -676,6 +693,8 @@ typedef struct {
     /* per sub-block targets, ramped */
     float D, D_cur, lvl, lvl_cur;
 } String;
+/* where the hand bow's swell is heading: its pressure while bowed */
+#define HAND_T(st) ((st)->hand ? (st)->hand_p : 0.f)
 
 static String str[NS];
 /* AIR, LISTEN: a listening voice is never played (no bow, breath, strikes or
@@ -870,6 +889,22 @@ void engine_pluck(int s)
         string_pluck(&str[s], 0.9f);
 }
 
+void engine_pluck_amp(int s, float amp)
+{
+    if (s >= 0 && s < NS && song.on[s]) {
+        flash[s][RING_PLUCK] = 1.f;
+        string_pluck(&str[s], amp < 0.05f ? 0.05f : amp > 1.f ? 1.f : amp);
+    }
+}
+
+float engine_string_pitch(int s)
+{
+    if (s < 0 || s >= NS)
+        return 0.f;
+    int note = song.gp[GP_MODE] == MODE_MONO ? song.sp[0][SP_NOTE] : song.sp[s][SP_NOTE];
+    return song.gp[GP_ROOT] + (deg_cents(cur_scale(), note) + song.sp[s][SP_FINE]) / 100.f;
+}
+
 void engine_hammer(int s)
 {
     if (s >= 0 && s < NS && song.on[s]) {
@@ -914,6 +949,21 @@ void engine_overblow(int s, int on)
     if (s >= 0 && s < NS)
         str[s].over = on;
 }
+
+/* live expression, from the sticks and MIDI: on top of the song, never saved */
+static volatile float ex_bend[NS], ex_tone, ex_space;
+void engine_bow_pressure(int s, float p)
+{
+    if (s >= 0 && s < NS)
+        str[s].hand_p = p < 0.f ? 0.f : p > 1.5f ? 1.5f : p;
+}
+void engine_express_bend(int s, float semitones)
+{
+    if (s >= 0 && s < NS)
+        ex_bend[s] = semitones < -24.f ? -24.f : semitones > 24.f ? 24.f : semitones;
+}
+void engine_express_tone(float octaves) { ex_tone = octaves < -4.f ? -4.f : octaves > 4.f ? 4.f : octaves; }
+void engine_express_space(float amt) { ex_space = amt < -1.f ? -1.f : amt > 1.f ? 1.f : amt; }
 
 void engine_set_playing(int on) { live.playing = on; }
 
@@ -1678,7 +1728,7 @@ static void wind_tick(String *st, const WindVoice *v, float inj, float *py, floa
     /* breath: steady blowing (BREATH, opened by the breath ring or the
      * hand), plus tongued notes that push and fall back */
     st->bow_env += ((float)st->bow_open - st->bow_env) * v->bow_k;
-    st->hand_env += ((float)st->hand - st->hand_env) * (st->hand ? v->hand_k : v->hand_rel);
+    st->hand_env += (HAND_T(st) - st->hand_env) * (st->hand ? v->hand_k : v->hand_rel);
     float h = v->latch ? fmaxf(st->hand_env, st->bow_env) : st->hand_env;
     /* a tongued note, like a player's "ta": the tongue stops the air for a
      * moment, lets it go in a quick breathy push (and, on lips, a buzzing
@@ -2317,6 +2367,11 @@ static void flush_denormals(void)
     __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
     fpscr |= 1u << 24; /* FZ */
     __asm__ volatile("vmsr fpscr, %0" : : "r"(fpscr));
+#elif defined(__aarch64__)
+    uint64_t fpcr;
+    __asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
+    fpcr |= 1u << 24; /* FZ */
+    __asm__ volatile("msr fpcr, %0" : : "r"(fpcr));
 #elif defined(__SSE__)
     unsigned int csr;
     __asm__ volatile("stmxcsr %0" : "=m"(csr));
@@ -2325,43 +2380,77 @@ static void flush_denormals(void)
 #endif
 }
 
-void engine_render(int16_t *out, int frames)
+/* The sound is made in two stages. The voices (strings, winds, struck
+ * bodies, the bridge between them, AURA and the undertones) are tied to each
+ * other sample by sample, so they are made together. Everything after them
+ * (the sympathetic strings, body, binaural, TONE, delay, reverb, leveller
+ * and master) only hears them and never feeds back. engine_voices makes a
+ * block of the voices and hands it on; engine_effects finishes it. They may
+ * run one after the other (engine_render) or on two cores, a block apart
+ * (see ahead.c): the sound is the same, sample for sample. */
+typedef struct {
+    float L, R;   /* the voices, panned */
+    float br;     /* the bridge, as the sympathetic strings hear it */
+    float play;   /* the START fade */
+    double phase; /* the beat's phase, for the clock out */
+    int playing;
+} VoiceOut;
+typedef struct {
+    float cut, dly, verb; /* the LFOs on TONE, delay and reverb */
+    float sy_target[NSYMP]; /* where each sympathetic string is tuned */
+} SubMod;
+struct EngineBlock {
+    int frames, cap;
+    int agc_hold; /* LATCH: the leveller may turn down but not lift */
+    int nsy;      /* sympathetic strings sounding */
+    VoiceOut *v;
+    SubMod *m;
+};
+
+EngineBlock *engine_block_new(int frames)
+{
+    EngineBlock *b = calloc(1, sizeof *b);
+    if (!b)
+        return NULL;
+    b->cap = frames;
+    b->v = calloc((size_t)frames, sizeof *b->v);
+    b->m = calloc((size_t)(frames + SUB - 1) / SUB, sizeof *b->m);
+    if (!b->v || !b->m) {
+        engine_block_free(b);
+        return NULL;
+    }
+    return b;
+}
+
+void engine_block_free(EngineBlock *b)
+{
+    if (!b)
+        return;
+    free(b->v);
+    free(b->m);
+    free(b);
+}
+
+int engine_block_frames(const EngineBlock *b) { return b->frames; }
+
+void engine_voices(EngineBlock *b, int frames)
 {
     flush_denormals();
+    if (frames > b->cap)
+        frames = b->cap;
+    b->frames = frames;
     float drift_amt = song.gp[GP_DRIFT] / 100.f;
-    float verb_send = song.fx[FX_VSEND] / 100.f;
-    /* MASTER is a plain fader up to 80; above that it drives up to +14 dB
-     * into the soft clipper, trading clean peaks for loudness */
-    float m = song.gp[GP_MASTER] / 100.f;
-    float master_t = m <= 0.8f ? m * m * 1.3f : 0.832f * exp2f((m - 0.8f) * 12.f);
     float play_t = live.playing ? 1.f : 0.f;
     float g_ramp = 1.f / (0.02f * sr);
     /* ATTACK and RELEASE: the drone fades in and out with START */
     float att_k = 1.f - expf(-3.f / (fade_secs(song.gp[GP_ATTACK]) * sr));
     float rel_k = 1.f - expf(-3.f / (fade_secs(song.gp[GP_RELEASE]) * sr));
-    /* the gain comes down within the look-ahead (about 3 time constants)
-     * and climbs back slowly */
-    int la_n = (int)(0.006f * sr) < LA_MAX - 1 ? (int)(0.006f * sr) : LA_MAX - 1;
-    float lev_rel = expf(-1.f / (0.15f * sr)), lev_att = 1.f - expf(-3.f / la_n),
-          lev_slow = 1.f - expf(-1.f / (0.08f * sr));
-    float agc_k = 1.f - expf(-1.f / (1.0f * sr)), agc_up = 1.f - expf(-1.f / (3.f * sr)),
-          agc_down = 1.f - expf(-1.f / (0.4f * sr));
-    float meter[NS] = {0}, mm = 0.f;
+    float meter[NS] = {0};
     int mono = song.gp[GP_MODE] == MODE_MONO;
     float sps16 = sr * 15.f / bpm_f; /* samples per 16th */
-    /* MONO + CLOCK: the sound from the centre on one side, clock pulses on
-     * the other. The pulses go out la_n samples late, with the sound the
-     * look-ahead leveller holds back, so each lands on its beat. */
-    int clk_out = song.gp[GP_OUTPUT] == OUT_MONO_CLOCK, clk_left = song.gp[GP_CLKSIDE];
-    int clk_ppqn = ppqn_values[song.gp[GP_PPQN]];
-    double clk_spp = sr * 60.0 / (bpm_f * clk_ppqn); /* samples per clock pulse */
-    double clk_w = fmin(song.gp[GP_PULSE] * 0.001 * sr, clk_spp * 0.5);
+    int clk_out = song.gp[GP_OUTPUT] == OUT_MONO_CLOCK;
     /* GLIDE OFF still slides over ~10 ms, so a jump never clicks */
     float glide_samps = fmaxf(sps16 * glide_div16[song.gp[GP_GLIDE]], 0.01f * sr);
-    float dly_target = fminf(sps16 * dly_div16[song.fx[FX_DTIME]], DLY_MAX - 4.f);
-    float dly_fb = song.fx[FX_DFB] / 100.f, dly_mix_p = song.fx[FX_DMIX] / 100.f;
-    if (dly_time_cur <= 0.f)
-        dly_time_cur = dly_target;
     int latch_mode = song.gp[GP_PLAYMODE] == PLAY_LATCH;
     /* LATCH: while a string fades over its RELEASE, or when every string
      * has been let go, the leveller must not lift the sound back up, or a
@@ -2377,6 +2466,7 @@ void engine_render(int16_t *out, int frames)
         }
         agc_hold = !any_on || fading;
     }
+    b->agc_hold = agc_hold;
     /* COUPLE: how much of the bridge each string hears */
     float couple = song.fx[FX_SYMP] / 100.f;
     couple = couple * couple * 0.012f;
@@ -2396,52 +2486,18 @@ void engine_render(int16_t *out, int frames)
     float air_g[NS][NS];
     if (air_on)
         for (int a = 0; a < NS; a++)
-            for (int b = 0; b < NS; b++) {
-                float dx = clk_out ? 0.f : (song.sp[a][SP_PAN] - song.sp[b][SP_PAN]) / 50.f * 1.5f, dz = 0.4f + 0.25f * abs(a - b);
+            for (int b_ = 0; b_ < NS; b_++) {
+                float dx = clk_out ? 0.f : (song.sp[a][SP_PAN] - song.sp[b_][SP_PAN]) / 50.f * 1.5f, dz = 0.4f + 0.25f * abs(a - b_);
                 float d = sqrtf(dx * dx + dz * dz);
-                air_d[a][b] = (int)(d / 343.f * sr) + 1;
-                if (air_d[a][b] > AIRN - 1)
-                    air_d[a][b] = AIRN - 1;
+                air_d[a][b_] = (int)(d / 343.f * sr) + 1;
+                if (air_d[a][b_] > AIRN - 1)
+                    air_d[a][b_] = AIRN - 1;
                 /* who hears whom: one way only */
-                int hears = engine_air_mode == AIR_FLOW ? b < a
-                          : ((engine_listen >> a) & 1) && (!((engine_listen >> b) & 1) || b < a);
-                hears = hears && !((air_out >> a) & 1) && !((air_out >> b) & 1);
-                air_g[a][b] = hears ? engine_air * 0.4f / d : 0.f;
+                int hears = engine_air_mode == AIR_FLOW ? b_ < a
+                          : ((engine_listen >> a) & 1) && (!((engine_listen >> b_) & 1) || b_ < a);
+                hears = hears && !((air_out >> a) & 1) && !((air_out >> b_) & 1);
+                air_g[a][b_] = hears ? engine_air * 0.4f / d : 0.f;
             }
-    /* BODY: five resonant modes. WOOD and GOURD are fixed boxes, BRONZE rings
-     * inharmonically and HARMONIC on the overtones, both tuned to the root */
-    float body_amt = song.fx[FX_BODY] / 100.f, bm_a1[NMODE], bm_a2[NMODE], bm_a3[NMODE], bm_g[NMODE];
-    if (body_amt > 0.f) {
-        static const float wood_f[NMODE] = {105, 210, 330, 480, 1100}, wood_q[NMODE] = {12, 10, 10, 8, 6};
-        static const float gourd_f[NMODE] = {140, 290, 520, 960, 2400}, gourd_q[NMODE] = {8, 9, 10, 8, 5};
-        static const float bronze_r[NMODE] = {1.f, 2.76f, 5.40f, 8.93f, 13.34f};
-        static const float gain[NMODE] = {1.f, 0.8f, 0.65f, 0.5f, 0.35f};
-        float root_hz = midi_hz((float)song.gp[GP_ROOT]);
-        while (root_hz < 90.f)
-            root_hz *= 2.f;
-        int bt = song.fx[FX_BTYPE];
-        const Material *mt = &materials[bt >= BODY_METAL ? MAT_METAL + bt - BODY_METAL : MAT_WOOD];
-        for (int i = 0; i < NMODE; i++) {
-            float f, q;
-            if (bt >= BODY_METAL) { /* a body of the bore materials */
-                f = mt->root_rel ? root_hz * mt->f[i] : mt->f[i];
-                q = mt->q[i];
-            }
-            else
-            switch (song.fx[FX_BTYPE]) {
-            case BODY_WOOD: f = wood_f[i], q = wood_q[i]; break;
-            case BODY_GOURD: f = gourd_f[i], q = gourd_q[i]; break;
-            case BODY_BRONZE: f = root_hz * 2.f * bronze_r[i], q = 70.f; break;
-            default: f = root_hz * (i + 1), q = 40.f; break;
-            }
-            f = fminf(f, 0.45f * sr);
-            float g = tanf(3.14159265f * f / sr), k = 1.f / q;
-            bm_a1[i] = 1.f / (1.f + g * (g + k));
-            bm_a2[i] = g * bm_a1[i];
-            bm_a3[i] = g * bm_a2[i];
-            bm_g[i] = gain[i] * k * 2.2f; /* band output scaled to unity peak, then a lift */
-        }
-    }
 
     /* static per-string settings for this block */
     float lp_k[NS], rho[NS], bow_amp[NS], bow_col[NS], base_midi[NS], fold_g[NS], stiff_a[NS], pos_f[NS];
@@ -2460,46 +2516,6 @@ void engine_render(int16_t *out, int frames)
     int wv_on[NS];
     static PercVoice pv[NS]; /* kept: the modes are worked out again only on a change */
     int pv_on[NS];
-    /* binaural: the beat in hertz; LOCK puts it on the nearest power-of-two
-     * multiple of the beat rate, so it pulses with the rhythm */
-    float bin_hz = beat_hz[song.fx[FX_BINBEAT]], bin_mix = song.fx[FX_BINDEPTH] / 100.f;
-    /* journeys: the beat glides down over minutes (alpha to theta, or theta
-     * to delta), the time counted while the drone plays */
-    if (song.fx[FX_BINLOCK] != bin_mode_was || song.fx[FX_BINBEAT] == 0) {
-        bin_mode_was = song.fx[FX_BINLOCK];
-        bin_journey_t = 0.0;
-    }
-    if (song.fx[FX_BINBEAT] && (song.fx[FX_BINLOCK] == BIN_AT || song.fx[FX_BINLOCK] == BIN_TD)) {
-        static const float from[2] = {10.f, 6.f}, to[2] = {6.f, 2.5f}, mins[2] = {10.f, 15.f};
-        int j = song.fx[FX_BINLOCK] - 2;
-        if (live.playing)
-            bin_journey_t += frames / sr;
-        float u = fminf(1.f, (float)(bin_journey_t / (mins[j] * 60.f)));
-        bin_hz = from[j] * powf(to[j] / from[j], u);
-    }
-    else if (bin_hz > 0.f && song.fx[FX_BINLOCK] == 1) {
-        float b = bpm_f / 60.f;
-        while (b * 1.41421f < bin_hz)
-            b *= 2.f;
-        while (b > bin_hz * 1.41421f)
-            b *= 0.5f;
-        bin_hz = b;
-    }
-    live.bin_hz = bin_hz;
-    int ombak = song.fx[FX_BINLOCK] == BIN_OMBAK;
-    float bin_dc = cosf(3.14159265f * bin_hz / sr), bin_ds = sinf(3.14159265f * bin_hz / sr); /* half the beat per ear */
-    {
-        float mag = sqrtf(bin_c * bin_c + bin_s * bin_s); /* keep the phasor exactly round */
-        if (mag > 0.f)
-            bin_c /= mag, bin_s /= mag;
-    }
-    float bin_lk = 1.f - expf(-6.2831853f * 1000.f / sr);
-    /* reverb: TIME sets the decay (0.5 .. 10 s), TONE the damping */
-    float t60 = 0.5f * powf(20.f, song.fx[FX_VTIME] / 100.f), fdn_g[FDN];
-    for (int l = 0; l < FDN; l++)
-        fdn_g[l] = powf(10.f, -3.f * fdn_len48[l] * (sr / 48000.f) / (t60 * sr));
-    float fdn_damp = 0.15f + 0.8f * song.fx[FX_VTONE] / 100.f;
-    float mod_inc = 6.2831853f * 0.13f / sr;
     float harm_n[NS], gate_d[NS];
     for (int s = 0; s < NS; s++) {
         harm_n[s] = song.sp[s][SP_HARM] ? (float)(song.sp[s][SP_HARM] + 1) : 0.f;
@@ -2509,15 +2525,9 @@ void engine_render(int16_t *out, int frames)
         if (song.fx[FX_AIR] > 0 && song.sp[s][SP_LISTEN] == AIR_LISTENS)
             gate_d[s] = 0.f; /* a listener is never played: nothing of its own to gate it */
     }
-    /* sympathetic strings: tune them, and set their loop */
+    /* sympathetic strings: where they are tuned (they sound in engine_effects) */
     int nsy = song.fx[FX_SCOUNT];
-    float sy_rho = 0.97f + 0.0295f * sqrtf(song.fx[FX_SRING] / 100.f);
-    float sy_gain = nsy ? song.fx[FX_SLEVEL] / 100.f * 2.5f / sqrtf((float)nsy) : 0.f;
-    float sy_drive = 0.02f, sy_pl[NSYMP], sy_pr[NSYMP];
-    for (int k = 0; k < NSYMP; k++) { /* spread alternately left and right, wider up the set */
-        float pan = clk_out ? 0.f : (k & 1 ? 1.f : -1.f) * (0.25f + 0.6f * (float)k / NSYMP);
-        sy_pl[k] = 1.f - pan, sy_pr[k] = 1.f + pan;
-    }
+    b->nsy = nsy;
     if (nsy)
         symp_tune(sc, nsy);
     for (int s = 0; s < NS; s++) {
@@ -2564,6 +2574,7 @@ void engine_render(int16_t *out, int frames)
 
     for (int n0 = 0; n0 < frames; n0 += SUB) {
         int nn = frames - n0 < SUB ? frames - n0 : SUB;
+        SubMod *sm = &b->m[n0 / SUB];
         /* modulation, once per sub-block */
         double pos16 = engine_position();
         float m_cut = 0.f, m_lvl = 1.f, m_pitch = 0.f, m_bow = 1.f, m_dly = 1.f, m_verb = 1.f;
@@ -2579,11 +2590,7 @@ void engine_render(int16_t *out, int frames)
             case LT_VERB: m_verb *= 1.f - depth * (1.f - v); break;
             }
         }
-        float cut = 60.f * powf(300.f, song.gp[GP_CUTOFF] / 100.f) * exp2f(m_cut);
-        float fg = tanf(3.14159265f * fminf(fmaxf(cut, 30.f), 0.45f * sr) / sr), fk = 1.2f;
-        float fa1 = 1.f / (1.f + fg * (fg + fk)), fa2 = fg * fa1, fa3 = fg * fa2;
-        float dly_mix = dly_mix_p * m_dly, vsend = verb_send * m_verb;
-        float fdn_mv = 8.f * sinf(fdn_mod); /* the reverb's slow wobble, once a sub-block */
+        sm->cut = m_cut + ex_tone, sm->dly = m_dly, sm->verb = m_verb * (1.f + ex_space);
         for (int s = 0; s < NS; s++) {
             String *st = &str[s];
             /* portamento: a lag toward the target pitch that settles in
@@ -2594,7 +2601,7 @@ void engine_render(int16_t *out, int frames)
             }
             else
                 st->midi_cur += (base_midi[s] - st->midi_cur) * (1.f - expf(-4.f * nn / glide_samps));
-            float hz = midi_hz(st->midi_cur + m_pitch);
+            float hz = midi_hz(st->midi_cur + m_pitch + ex_bend[s]);
             hz = fmaxf(20.f, fminf(hz, sr / 8.f));
             /* a new kind of voice: the old one fades out first (20 ms), then
              * what it left in the loop is cleared and the new one fades in,
@@ -2621,7 +2628,7 @@ void engine_render(int16_t *out, int frames)
                 float h = latch_mode ? fmaxf(st->hand_env, st->bow_env) : st->hand_env;
                 float bow = P[SP_BOW] / 100.f * fmaxf(st->bow_env, h) * m_bow + 0.4f * h; /* the hand presses harder */
                 st->bow_env += ((float)st->bow_open - st->bow_env) * fminf(1.f, bow_k[s] * nn);
-                st->hand_env += ((float)st->hand - st->hand_env) * fminf(1.f, (st->hand ? hand_k : hand_rel) * nn);
+                st->hand_env += (HAND_T(st) - st->hand_env) * fminf(1.f, (st->hand ? hand_k : hand_rel) * nn);
                 perc_setup(&pv[s], st, P, hz, bow);
                 st->f_sound = hz;
                 float l = P[SP_LEVEL] / 100.f;
@@ -2665,22 +2672,8 @@ void engine_render(int16_t *out, int frames)
                     sb_amp[s][j] = sinf(w) * (1.f - powf(sub_r, sr * sdiv[j] / fv));
                 }
             }
-        float sy_dD[NSYMP];
-        for (int k = 0; k < nsy; k++) {
-            Symp *q = &sy[k];
-            float target = song.gp[GP_ROOT] + (deg_cents(sc, symp_deg[k]) + symp_fine[k]) / 100.f;
-            if (!q->set) {
-                q->midi = target;
-                q->set = 1;
-            }
-            else
-                q->midi += (target - q->midi) * (1.f - expf(-4.f * nn / glide_samps));
-            float hz = fmaxf(30.f, fminf(midi_hz(q->midi), sr / 8.f));
-            q->D = fmaxf(2.f, fminf(sr / hz - 1.f, SB - 3.f)); /* the lowpass adds about a sample */
-            if (q->D_cur <= 0.f)
-                q->D_cur = q->D;
-            sy_dD[k] = (q->D - q->D_cur) / nn;
-        }
+        for (int k = 0; k < nsy; k++)
+            sm->sy_target[k] = song.gp[GP_ROOT] + (deg_cents(sc, symp_deg[k]) + symp_fine[k]) / 100.f;
         float dD[NS], dl[NS];
         for (int s = 0; s < NS; s++) {
             dD[s] = (str[s].D - str[s].D_cur) / nn;
@@ -2823,7 +2816,7 @@ void engine_render(int16_t *out, int frames)
                  * slowly, pressing harder (even at BOW 0), over whatever the ring
                  * is doing, and keeps the string singing while it is held */
                 st->bow_env += ((float)st->bow_open - st->bow_env) * bow_k[s];
-                st->hand_env += ((float)st->hand - st->hand_env) * (st->hand ? hand_k : hand_rel);
+                st->hand_env += (HAND_T(st) - st->hand_env) * (st->hand ? hand_k : hand_rel);
                 float h = latch_mode ? fmaxf(st->hand_env, st->bow_env) : st->hand_env; /* a latch bows like the hand */
                 float open = fmaxf(st->bow_env, h);
                 float hr = fmaxf(0.f, 1.f - st->env * 1.4f);
@@ -2907,6 +2900,188 @@ void engine_render(int16_t *out, int frames)
             bridge_hp = br - bridge_x1 + 0.995f * bridge_hp;
             bridge_x1 = br;
             bridge = bridge_hp;
+            air_w = (air_w + 1) & (AIRN - 1);
+            /* the dither once drew from this generator (two numbers a channel); it
+             * has its own now, but the voices keep the same random sequence as
+             * before, so a song plays the same progressions and patterns */
+            xr(), xr();
+            if (!clk_out)
+                xr(), xr();
+
+            VoiceOut *vo = &b->v[n];
+            vo->L = L, vo->R = R, vo->br = bridge, vo->play = play_g;
+            vo->phase = beat_phase;
+            vo->playing = live.playing;
+        }
+        for (int s = 0; s < NS; s++) {
+            str[s].D_cur = str[s].D;
+            str[s].lvl_cur = str[s].lvl;
+        }
+    }
+    float fl = expf(-frames / (0.3f * sr));
+    for (int s = 0; s < NS; s++) {
+        live.meter[s] = meter[s];
+        live.phase[s] = str[s].vis_ph;
+        live.bow_env[s] = fmaxf(str[s].bow_env, str[s].hand_env);
+        live.hand_env[s] = str[s].hand_env;
+    }
+    for (int s = 0; s < NS; s++) {
+        for (int r = 0; r < NRING; r++)
+            live.flash[s][r] = flash[s][r] *= fl;
+    }
+    for (int s = 0; s < NS; s++) {
+        String *st = &str[s];
+        stats.f_target[s] = st->f_sound;
+        stats.meter[s] = live.meter[s];
+        stats.breath[s] = engine_voice_wind(s) ? st->pr : fmaxf(st->bow_env, st->hand_env);
+        stats.corr[s] = st->corr > 0.f ? st->corr : 1.f;
+    }
+}
+
+void engine_effects(const EngineBlock *b, int16_t *out)
+{
+    flush_denormals();
+    int frames = b->frames;
+    float verb_send = song.fx[FX_VSEND] / 100.f;
+    /* MASTER is a plain fader up to 80; above that it drives up to +14 dB
+     * into the soft clipper, trading clean peaks for loudness */
+    float m = song.gp[GP_MASTER] / 100.f;
+    float master_t = m <= 0.8f ? m * m * 1.3f : 0.832f * exp2f((m - 0.8f) * 12.f);
+    float g_ramp = 1.f / (0.02f * sr);
+    /* the gain comes down within the look-ahead (about 3 time constants)
+     * and climbs back slowly */
+    int la_n = (int)(0.006f * sr) < LA_MAX - 1 ? (int)(0.006f * sr) : LA_MAX - 1;
+    float lev_rel = expf(-1.f / (0.15f * sr)), lev_att = 1.f - expf(-3.f / la_n),
+          lev_slow = 1.f - expf(-1.f / (0.08f * sr));
+    float agc_k = 1.f - expf(-1.f / (1.0f * sr)), agc_up = 1.f - expf(-1.f / (3.f * sr)),
+          agc_down = 1.f - expf(-1.f / (0.4f * sr));
+    float mm = 0.f;
+    float sps16 = sr * 15.f / bpm_f; /* samples per 16th */
+    /* MONO + CLOCK: the sound from the centre on one side, clock pulses on
+     * the other. The pulses go out la_n samples late, with the sound the
+     * look-ahead leveller holds back, so each lands on its beat. */
+    int clk_out = song.gp[GP_OUTPUT] == OUT_MONO_CLOCK, clk_left = song.gp[GP_CLKSIDE];
+    int clk_ppqn = ppqn_values[song.gp[GP_PPQN]];
+    double clk_spp = sr * 60.0 / (bpm_f * clk_ppqn); /* samples per clock pulse */
+    double clk_w = fmin(song.gp[GP_PULSE] * 0.001 * sr, clk_spp * 0.5);
+    float glide_samps = fmaxf(sps16 * glide_div16[song.gp[GP_GLIDE]], 0.01f * sr);
+    float dly_target = fminf(sps16 * dly_div16[song.fx[FX_DTIME]], DLY_MAX - 4.f);
+    float dly_fb = song.fx[FX_DFB] / 100.f, dly_mix_p = song.fx[FX_DMIX] / 100.f;
+    if (dly_time_cur <= 0.f)
+        dly_time_cur = dly_target;
+    int agc_hold = b->agc_hold;
+    /* BODY: five resonant modes. WOOD and GOURD are fixed boxes, BRONZE rings
+     * inharmonically and HARMONIC on the overtones, both tuned to the root */
+    float body_amt = song.fx[FX_BODY] / 100.f, bm_a1[NMODE], bm_a2[NMODE], bm_a3[NMODE], bm_g[NMODE];
+    if (body_amt > 0.f) {
+        static const float wood_f[NMODE] = {105, 210, 330, 480, 1100}, wood_q[NMODE] = {12, 10, 10, 8, 6};
+        static const float gourd_f[NMODE] = {140, 290, 520, 960, 2400}, gourd_q[NMODE] = {8, 9, 10, 8, 5};
+        static const float bronze_r[NMODE] = {1.f, 2.76f, 5.40f, 8.93f, 13.34f};
+        static const float gain[NMODE] = {1.f, 0.8f, 0.65f, 0.5f, 0.35f};
+        float root_hz = midi_hz((float)song.gp[GP_ROOT]);
+        while (root_hz < 90.f)
+            root_hz *= 2.f;
+        int bt = song.fx[FX_BTYPE];
+        const Material *mt = &materials[bt >= BODY_METAL ? MAT_METAL + bt - BODY_METAL : MAT_WOOD];
+        for (int i = 0; i < NMODE; i++) {
+            float f, q;
+            if (bt >= BODY_METAL) { /* a body of the bore materials */
+                f = mt->root_rel ? root_hz * mt->f[i] : mt->f[i];
+                q = mt->q[i];
+            }
+            else
+            switch (song.fx[FX_BTYPE]) {
+            case BODY_WOOD: f = wood_f[i], q = wood_q[i]; break;
+            case BODY_GOURD: f = gourd_f[i], q = gourd_q[i]; break;
+            case BODY_BRONZE: f = root_hz * 2.f * bronze_r[i], q = 70.f; break;
+            default: f = root_hz * (i + 1), q = 40.f; break;
+            }
+            f = fminf(f, 0.45f * sr);
+            float g = tanf(3.14159265f * f / sr), k = 1.f / q;
+            bm_a1[i] = 1.f / (1.f + g * (g + k));
+            bm_a2[i] = g * bm_a1[i];
+            bm_a3[i] = g * bm_a2[i];
+            bm_g[i] = gain[i] * k * 2.2f; /* band output scaled to unity peak, then a lift */
+        }
+    }
+    /* binaural: the beat in hertz; LOCK puts it on the nearest power-of-two
+     * multiple of the beat rate, so it pulses with the rhythm */
+    float bin_hz = beat_hz[song.fx[FX_BINBEAT]], bin_mix = song.fx[FX_BINDEPTH] / 100.f;
+    /* journeys: the beat glides down over minutes (alpha to theta, or theta
+     * to delta), the time counted while the drone plays */
+    if (song.fx[FX_BINLOCK] != bin_mode_was || song.fx[FX_BINBEAT] == 0) {
+        bin_mode_was = song.fx[FX_BINLOCK];
+        bin_journey_t = 0.0;
+    }
+    if (song.fx[FX_BINBEAT] && (song.fx[FX_BINLOCK] == BIN_AT || song.fx[FX_BINLOCK] == BIN_TD)) {
+        static const float from[2] = {10.f, 6.f}, to[2] = {6.f, 2.5f}, mins[2] = {10.f, 15.f};
+        int j = song.fx[FX_BINLOCK] - 2;
+        if (frames && b->v[0].playing)
+            bin_journey_t += frames / sr;
+        float u = fminf(1.f, (float)(bin_journey_t / (mins[j] * 60.f)));
+        bin_hz = from[j] * powf(to[j] / from[j], u);
+    }
+    else if (bin_hz > 0.f && song.fx[FX_BINLOCK] == 1) {
+        float bb = bpm_f / 60.f;
+        while (bb * 1.41421f < bin_hz)
+            bb *= 2.f;
+        while (bb > bin_hz * 1.41421f)
+            bb *= 0.5f;
+        bin_hz = bb;
+    }
+    live.bin_hz = bin_hz;
+    int ombak = song.fx[FX_BINLOCK] == BIN_OMBAK;
+    float bin_dc = cosf(3.14159265f * bin_hz / sr), bin_ds = sinf(3.14159265f * bin_hz / sr); /* half the beat per ear */
+    {
+        float mag = sqrtf(bin_c * bin_c + bin_s * bin_s); /* keep the phasor exactly round */
+        if (mag > 0.f)
+            bin_c /= mag, bin_s /= mag;
+    }
+    float bin_lk = 1.f - expf(-6.2831853f * 1000.f / sr);
+    /* reverb: TIME sets the decay (0.5 .. 10 s), TONE the damping */
+    float t60 = 0.5f * powf(20.f, song.fx[FX_VTIME] / 100.f), fdn_g[FDN];
+    for (int l = 0; l < FDN; l++)
+        fdn_g[l] = powf(10.f, -3.f * fdn_len48[l] * (sr / 48000.f) / (t60 * sr));
+    float fdn_damp = 0.15f + 0.8f * song.fx[FX_VTONE] / 100.f;
+    float mod_inc = 6.2831853f * 0.13f / sr;
+    /* sympathetic strings: their loop, level and place */
+    int nsy = b->nsy;
+    float sy_rho = 0.97f + 0.0295f * sqrtf(song.fx[FX_SRING] / 100.f);
+    float sy_gain = nsy ? song.fx[FX_SLEVEL] / 100.f * 2.5f / sqrtf((float)nsy) : 0.f;
+    float sy_drive = 0.02f, sy_pl[NSYMP], sy_pr[NSYMP];
+    for (int k = 0; k < NSYMP; k++) { /* spread alternately left and right, wider up the set */
+        float pan = clk_out ? 0.f : (k & 1 ? 1.f : -1.f) * (0.25f + 0.6f * (float)k / NSYMP);
+        sy_pl[k] = 1.f - pan, sy_pr[k] = 1.f + pan;
+    }
+
+    for (int n0 = 0; n0 < frames; n0 += SUB) {
+        int nn = frames - n0 < SUB ? frames - n0 : SUB;
+        const SubMod *sm = &b->m[n0 / SUB];
+        float cut = 60.f * powf(300.f, song.gp[GP_CUTOFF] / 100.f) * exp2f(sm->cut);
+        float fg = tanf(3.14159265f * fminf(fmaxf(cut, 30.f), 0.45f * sr) / sr), fk = 1.2f;
+        float fa1 = 1.f / (1.f + fg * (fg + fk)), fa2 = fg * fa1, fa3 = fg * fa2;
+        float dly_mix = dly_mix_p * sm->dly, vsend = verb_send * sm->verb;
+        float fdn_mv = 8.f * sinf(fdn_mod); /* the reverb's slow wobble, once a sub-block */
+        float sy_dD[NSYMP];
+        for (int k = 0; k < nsy; k++) {
+            Symp *q = &sy[k];
+            float target = sm->sy_target[k];
+            if (!q->set) {
+                q->midi = target;
+                q->set = 1;
+            }
+            else
+                q->midi += (target - q->midi) * (1.f - expf(-4.f * nn / glide_samps));
+            float hz = fmaxf(30.f, fminf(midi_hz(q->midi), sr / 8.f));
+            q->D = fmaxf(2.f, fminf(sr / hz - 1.f, SB - 3.f)); /* the lowpass adds about a sample */
+            if (q->D_cur <= 0.f)
+                q->D_cur = q->D;
+            sy_dD[k] = (q->D - q->D_cur) / nn;
+        }
+
+        for (int n = n0; n < n0 + nn; n++) {
+            const VoiceOut *vo = &b->v[n];
+            float L = vo->L, R = vo->R, bridge_n = vo->br, play_n = vo->play;
 
             /* the sympathetic strings hear the bridge, spread across the
              * stereo field, and go to the reverb a little more */
@@ -2921,7 +3096,7 @@ void engine_render(int16_t *out, int frames)
                     int ri = (int)rp, rj = ri + 1 < SB ? ri + 1 : 0;
                     float y = q->buf[ri] + (q->buf[rj] - q->buf[ri]) * (rp - ri);
                     q->lp += (y - q->lp) * 0.5f;
-                    q->buf[q->w] = softclip(q->lp * sy_rho + bridge * sy_drive);
+                    q->buf[q->w] = softclip(q->lp * sy_rho + bridge_n * sy_drive);
                     q->w = q->w + 1 < SB ? q->w + 1 : 0;
                     sl += y * sy_pl[k];
                     sr_ += y * sy_pr[k];
@@ -2929,14 +3104,14 @@ void engine_render(int16_t *out, int frames)
                     if (a > q->peak)
                         q->peak = a;
                 }
-                L += sl * sy_gain * play_g;
-                R += sr_ * sy_gain * play_g;
+                L += sl * sy_gain * play_n;
+                R += sr_ * sy_gain * play_n;
             }
 
             /* the body resonates under the strings */
             if (body_amt > 0.f)
                 for (int ch = 0; ch < 2; ch++) {
-                    float x = ch ? R : L, b = 0.f;
+                    float x = ch ? R : L, bo = 0.f;
                     for (int i = 0; i < NMODE; i++) {
                         float *ic = body_ic[ch][i];
                         float v3 = x - ic[1];
@@ -2944,9 +3119,9 @@ void engine_render(int16_t *out, int frames)
                         float v2 = ic[1] + bm_a2[i] * ic[0] + bm_a3[i] * v3;
                         ic[0] = 2.f * v1 - ic[0];
                         ic[1] = 2.f * v2 - ic[1];
-                        b += v1 * bm_g[i];
+                        bo += v1 * bm_g[i];
                     }
-                    x = x * (1.f - 0.6f * body_amt) + b * body_amt;
+                    x = x * (1.f - 0.6f * body_amt) + bo * body_amt;
                     if (ch)
                         R = x;
                     else
@@ -3024,7 +3199,6 @@ void engine_render(int16_t *out, int frames)
             /* the reverb hears the sound after TONE, so a dark tone has dark echoes */
             reverb_tick((post + (dl0 + dr0) * 0.5f * dly_mix) * vsend * VERB_IN * 1.4f, &wl, &wr, fdn_g, fdn_damp, fdn_mv);
             room_prev = 0.5f * (wl + wr);
-            air_w = (air_w + 1) & (AIRN - 1);
             L += wl;
             R += wr;
 
@@ -3032,7 +3206,7 @@ void engine_render(int16_t *out, int frames)
              * dark drone is lifted as much as a bright plucked one, without
              * pumping on each pluck; silence (a stopped drone) is not lifted */
             agc_ms += (0.5f * (L * L + R * R) - agc_ms) * agc_k;
-            if (agc_ms > 1e-7f && play_g > 0.5f) {
+            if (agc_ms > 1e-7f && play_n > 0.5f) {
                 float want = fminf(AGC_MAX, fmaxf(0.5f, AGC_TARGET / sqrtf(agc_ms)));
                 if (want < agc_g || !agc_hold) /* held: it may turn down, never lift */
                     agc_g += (want - agc_g) * (want > agc_g ? agc_up : agc_down);
@@ -3069,54 +3243,50 @@ void engine_render(int16_t *out, int frames)
              * into soft noise instead of grainy steps */
             if (clk_out) {
                 float mono_out = 0.5f * (L + R);
-                double ph = fmod(beat_phase * clk_ppqn - la_n / clk_spp, 1.0);
-                int16_t c = live.playing && (ph < 0.0 ? ph + 1.0 : ph) * clk_spp < clk_w ? 30400 : 0;
-                int16_t a16 = (int16_t)lrintf(mono_out * 32000.f + frand() - frand());
+                double ph = fmod(vo->phase * clk_ppqn - la_n / clk_spp, 1.0);
+                int16_t c = vo->playing && (ph < 0.0 ? ph + 1.0 : ph) * clk_spp < clk_w ? 30400 : 0;
+                int16_t a16 = (int16_t)lrintf(mono_out * 32000.f + dither());
                 out[2 * n] = clk_left ? c : a16;
                 out[2 * n + 1] = clk_left ? a16 : c;
                 continue;
             }
-            out[2 * n] = (int16_t)lrintf(L * 32000.f + frand() - frand());
-            out[2 * n + 1] = (int16_t)lrintf(R * 32000.f + frand() - frand());
+            out[2 * n] = (int16_t)lrintf(L * 32000.f + dither());
+            out[2 * n + 1] = (int16_t)lrintf(R * 32000.f + dither());
         }
-        for (int s = 0; s < NS; s++) {
-            str[s].D_cur = str[s].D;
-            str[s].lvl_cur = str[s].lvl;
-        }
-    }
-    float fl = expf(-frames / (0.3f * sr));
-    for (int s = 0; s < NS; s++) {
-        live.meter[s] = meter[s];
-        live.phase[s] = str[s].vis_ph;
-        live.bow_env[s] = fmaxf(str[s].bow_env, str[s].hand_env);
-        live.hand_env[s] = str[s].hand_env;
     }
     {
-        float sm = 0.f;
+        float smx = 0.f;
         for (int k = 0; k < NSYMP; k++) {
             symp_pk[k] = k < nsy ? sy[k].peak : 0.f;
             sy[k].peak *= 0.5f;
-            if (symp_pk[k] > sm)
-                sm = symp_pk[k];
+            if (symp_pk[k] > smx)
+                smx = symp_pk[k];
         }
-        live.symp_meter = sm;
-    }
-    for (int s = 0; s < NS; s++) {
-        for (int r = 0; r < NRING; r++)
-            live.flash[s][r] = flash[s][r] *= fl;
+        live.symp_meter = smx;
     }
     live.master_meter = mm;
     stats.frames += frames;
     if (mm > stats.peak)
         stats.peak = mm;
-    for (int s = 0; s < NS; s++) {
-        String *st = &str[s];
-        stats.f_target[s] = st->f_sound;
-        stats.meter[s] = live.meter[s];
-        stats.breath[s] = engine_voice_wind(s) ? st->pr : fmaxf(st->bow_env, st->hand_env);
-        stats.corr[s] = st->corr > 0.f ? st->corr : 1.f;
-    }
+}
 
+/* both stages, one after the other: the block grows to fit the longest
+ * request (the tests ask for seconds at a time) */
+void engine_render(int16_t *out, int frames)
+{
+    static EngineBlock *blk;
+    if (frames <= 0)
+        return;
+    if (!blk || blk->cap < frames) {
+        engine_block_free(blk);
+        blk = engine_block_new(frames < 4096 ? 4096 : frames);
+        if (!blk) {
+            memset(out, 0, (size_t)frames * 4);
+            return;
+        }
+    }
+    engine_voices(blk, frames);
+    engine_effects(blk, out);
 }
 
 void engine_init(int sample_rate)
@@ -3130,7 +3300,7 @@ void engine_init(int sample_rate)
     live.rate = sample_rate;
     memset(str, 0, sizeof str);
     for (int s = 0; s < NS; s++)
-        str[s].art_t = -1.f, str[s].lim_g = 1.f; /* no tongued note yet; nothing limited */
+        str[s].art_t = -1.f, str[s].lim_g = 1.f, str[s].hand_p = 1.f; /* no tongued note yet; nothing limited */
     bpm_f = (float)song.gp[GP_BPM];
     for (int s = 0; s < NS; s++)
         str[s].bow_open = 1, str[s].bow_env = 1.f;
@@ -3172,6 +3342,10 @@ void engine_init(int sample_rate)
     memset(lfo_cycle, 0, sizeof lfo_cycle);
     bin_journey_t = 0.0;
     rng = 0x9e3779b9u;
+    rng_d = 0x2545f491u;
+    /* the progression starts afresh too: a fresh start sounds the same every time */
+    ch_root = ch_away = ch_kind = 0;
+    ch_prev = -1;
 }
 
 /* ------------------------------------------------------------ song state */

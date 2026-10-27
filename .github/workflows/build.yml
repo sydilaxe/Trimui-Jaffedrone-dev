@@ -13,24 +13,31 @@ on:
         default: ""
 
 jobs:
-  miyoo:
-    name: Miyoo Mini Plus package
+  trimui:
+    name: TrimUI packages (Brick / Brick Hammer, Brick Pro)
     runs-on: ubuntu-latest
-    container: aemiii91/miyoomini-toolchain:latest
     steps:
       - uses: actions/checkout@v4
       - name: Build
         run: |
           # generated files are committed; keep make from regenerating them
-          touch src/font_data.h src/logo_data.h dist/Jaffedrone/icon.png dist/Jaffedrone/splash.jdi
-          command -v zip >/dev/null && command -v unzip >/dev/null || (apt-get update && apt-get install -y zip unzip)
-          make package CROSS=/opt/miyoomini-toolchain/usr/bin/arm-linux-gnueabihf-
-          ls -l build/Jaffedrone-miyoo.zip
-          unzip -l build/Jaffedrone-miyoo.zip | grep -q "App/Jaffedrone/Jaffedrone-Manual.pdf"
+          touch src/font_data.h src/logo_data.h dist/Jaffedrone/icon.png dist/Jaffedrone/splash.jdi docs/Jaffedrone-Manual.pdf
+          pip install ziglang==0.14.1
+          make package
+          for d in brick brickpro; do
+            ls -l build/Jaffedrone-$d.zip
+            unzip -l build/Jaffedrone-$d.zip | grep -q "Apps/Jaffedrone/Jaffedrone-Manual.pdf"
+            unzip -l build/Jaffedrone-$d.zip | grep -q "Apps/Jaffedrone/jaffedrone$"
+            file build/$d/jaffedrone | grep -q "ARM aarch64"
+          done
+          # the two builds differ only by the Brick Pro's sticks
+          ! cmp -s build/brick/jaffedrone build/brickpro/jaffedrone
       - uses: actions/upload-artifact@v4
         with:
-          name: Jaffedrone-miyoo
-          path: build/Jaffedrone-miyoo.zip
+          name: Jaffedrone-trimui
+          path: |
+            build/Jaffedrone-brick.zip
+            build/Jaffedrone-brickpro.zip
 
   test:
     name: Engine and UI tests (host)
@@ -51,6 +58,13 @@ jobs:
           grep -q "struck skipping: .*(want over 60: 1)" $r
           grep -q "struck cache: same sound as working the modes out every time 1" $r
           grep -q "render ahead: .* made ahead [01] (want under 2); same sound 1" $r
+          # the TrimUI's four cores: voices and effects on two threads, the same sound
+          grep -q "render split: two threads 1, .*same sound 1" $r
+          # USB MIDI and the Brick Pro's sticks
+          grep -q "midi key: A3 -> .*(want 220: 1)" $r
+          grep -q "midi clock in: START plays 1, 120 BPM -> .* (1), STOP stops 1" $r
+          grep -q "midi clock out: START 1, .*(want 192: 1), STOP 1" $r
+          grep -q "stick: .*(lighter is softer: 1); bend +2 .*(want 1.122: 1)" $r
           awk '/^render ahead:/ { exit !($12 + 0 >= 20) }' $r
           test "$(grep -c '^dsp WORST .*sounding 1' $r)" -eq 3
           grep -q "0 full-scale samples (want 0)" $r
@@ -98,7 +112,7 @@ jobs:
     name: Publish release
     # runs for: a pushed v* tag, a release created on the website, or a manual run with a tag filled in
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
-    needs: [miyoo, test]
+    needs: [trimui, test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -106,16 +120,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: Jaffedrone-miyoo
-      - name: Create GitHub release with the Miyoo package
+          name: Jaffedrone-trimui
+      - name: Create GitHub release with the TrimUI packages
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}
         run: |
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" Jaffedrone-miyoo.zip --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$TAG" Jaffedrone-brick.zip Jaffedrone-brickpro.zip --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" Jaffedrone-miyoo.zip \
+            gh release create "$TAG" Jaffedrone-brick.zip Jaffedrone-brickpro.zip \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Jaffedrone $TAG (test build)" \

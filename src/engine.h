@@ -186,13 +186,35 @@ const char *sync_mode_name(int m);
 
 void engine_init(int sample_rate);
 void engine_render(int16_t *out, int frames);
+/* The same sound in two stages, for two cores: engine_voices makes a block
+ * of the voices (everything tied together sample by sample) and
+ * engine_effects finishes it (sympathetic strings, body, binaural, TONE,
+ * delay, reverb, leveller, master) into out. Each stage must be called by
+ * one thread at a time, in order, block after block; the stages may
+ * overlap, each on its own block. engine_render is the two in a row. */
+typedef struct EngineBlock EngineBlock;
+EngineBlock *engine_block_new(int max_frames);
+void engine_block_free(EngineBlock *b);
+int engine_block_frames(const EngineBlock *b);
+void engine_voices(EngineBlock *b, int frames);
+void engine_effects(const EngineBlock *b, int16_t *out);
 void engine_set_playing(int on);
 void engine_pluck(int s);
+void engine_pluck_amp(int s, float amp);  /* a pluck this strong (0 .. 1; engine_pluck is 0.9) */
+float engine_string_pitch(int s);          /* where string s is tuned now, as a MIDI note (with cents) */
 /* a tap: a string is struck like a hammered dulcimer (a bright hammer hit
  * with a light bounce), a wind voice gets a hard overblown attack */
 void engine_hammer(int s);
 void engine_bow(int s, int on); /* bow by hand while held, over the rings */
 void engine_overblow(int s, int on); /* while bowing: overblow (wind) or touch a harmonic (strings) */
+/* live expression (the Brick Pro's sticks, MIDI), on top of the song and
+ * never saved: how hard the hand bows string s (1 = as R1, 0 .. 1.5), its
+ * pitch bend in semitones, TONE moved in octaves, and the reverb's send
+ * from none (-1) through as set (0) to double (1) */
+void engine_bow_pressure(int s, float p);
+void engine_express_bend(int s, float semitones);
+void engine_express_tone(float octaves);
+void engine_express_space(float amt);
 /* LATCH: a pluck or bow (LATCH_PLUCK, LATCH_BOW) starts string s droning;
  * played again, it fades over its RELEASE. Returns the new state. */
 int engine_latch(int s, int how);

@@ -2,5 +2,5 @@
 "label":"Jaffedrone",
 "icon":"icon.png",
 "launch":"launch.sh",
-"description":"5-string drone synth, Jaffe-Smith plucked strings (MENU to exit)"
+"description":"5-string drone instrument, Jaffe-Smith strings, USB MIDI (MENU to exit)"
 }

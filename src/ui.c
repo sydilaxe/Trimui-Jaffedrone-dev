@@ -160,6 +160,8 @@ void ui_summary(void (*out)(const char *line))
 
 static int splash_ms; /* the start-up screen, until a button or this runs out */
 void ui_init(void) { splash_ms = 2500; }
+int ui_selected_string(void) { return cur_s; }
+void ui_notice(const char *msg) { say("%s", msg); }
 int ui_quit_requested(void) { return quit; }
 int ui_take_changed(void)
 {
