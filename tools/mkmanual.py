@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""The Jaffedrone manual as a PDF: each page shows the Miyoo Mini Plus,
-drawn, with the app's own screen on it and the buttons for each command
-lit and numbered.
+"""The Jaffedrone manual as a PDF: each page shows a TrimUI Brick, drawn
+(a schematic, not to scale), with the app's own screen on it and the
+buttons for each command lit and numbered; the Brick Pro's pages add its
+two sticks.
 
 usage: mkmanual.py SHOTS_DIR OUT.pdf
          SHOTS_DIR holds the screenshots `build/jd_test` writes (play.ppm, ...)
@@ -19,7 +20,7 @@ import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 # what the manual shows: change any of these and the manual must be rebuilt
-INPUTS = ["src/ui.c", "src/engine.h", "src/logo_data.h", "tools/mkmanual.py", "dist/Jaffedrone/splash.jdi"]
+INPUTS = ["src/ui.c", "src/engine.h", "src/midi.h", "src/logo_data.h", "tools/mkmanual.py", "dist/Jaffedrone/splash.jdi"]
 
 
 def fingerprint():
@@ -128,16 +129,17 @@ def shot(name):
     return SHOTS[name]
 
 
-class Miyoo(Flowable):
-    """the Miyoo Mini Plus from the front, its shoulder buttons above, the
-    app on its screen; `lit` maps buttons (UP DOWN LEFT RIGHT DPAD A B X Y
-    L1 L2 R1 R2 SELECT START MENU) to a badge number or ""."""
+class Brick(Flowable):
+    """a TrimUI Brick from the front (a schematic), its shoulder buttons
+    above, the app on its 4:3 screen; `lit` maps buttons (UP DOWN LEFT RIGHT
+    DPAD A B X Y L1 L2 R1 R2 SELECT START MENU, and on the Brick Pro LS RS
+    for the sticks) to a badge number or "". pro: draw the two sticks."""
 
-    W, H = 78.0, 108.0  # the body, millimetres
+    W, H = 78.0, 112.0  # the body, millimetres
 
-    def __init__(self, screen, lit=None, width=62 * mm, caption=None):
+    def __init__(self, screen, lit=None, width=62 * mm, caption=None, pro=False):
         super().__init__()
-        self.screen, self.lit, self.caption = screen, lit or {}, caption
+        self.screen, self.lit, self.caption, self.pro = screen, lit or {}, caption, pro
         self.k = width / self.W
         self.width = width
         self.height = (self.H + 9) * self.k + (14 if caption else 0)
@@ -196,45 +198,53 @@ class Miyoo(Flowable):
         c.setFillColor(BODY)
         c.setStrokeColor(BODY_EDGE)
         c.setLineWidth(0.9)
-        c.roundRect(self.X(0), self.Y(0), W * k, H * k, 8 * k, fill=1, stroke=1)
-        # the screen: a 640 x 480 picture in its bezel
+        c.roundRect(self.X(0), self.Y(0), W * k, H * k, 7 * k, fill=1, stroke=1)
+        # the screen: a 1024 x 768 picture (the app's 640 x 480, scaled) in its bezel
         c.setFillColor(colors.HexColor("#15171c"))
-        c.roundRect(self.X(4), self.Y(51), 70 * k, 53 * k, 3.5 * k, fill=1, stroke=0)
+        c.roundRect(self.X(4), self.Y(55), 70 * k, 53 * k, 3.5 * k, fill=1, stroke=0)
         if self.screen:
-            c.drawImage(shot(self.screen), self.X(7), self.Y(53.5), 64 * k, 48 * k)
+            c.drawImage(shot(self.screen), self.X(7), self.Y(57.5), 64 * k, 48 * k)
         # the d-pad
-        cx, cy = 19.0, 29.0
+        cx, cy = 18.0, 35.0
         c.setFillColor(colors.HexColor("#cfcbc2"))
-        c.circle(self.X(cx), self.Y(cy), 13 * k, fill=1, stroke=0)
+        c.circle(self.X(cx), self.Y(cy), 12.5 * k, fill=1, stroke=0)
         for name, dx, dy in (("UP", 0, 1), ("DOWN", 0, -1), ("LEFT", -1, 0), ("RIGHT", 1, 0)):
             self.key(name, "rect", cx + dx * 6.2 - 3.4, cy + dy * 6.2 - 3.4, 6.8, 6.8, 1.2)
         c.setFillColor(KEY if "DPAD" not in self.lit else COPPER)
         c.rect(self.X(cx - 3.4), self.Y(cy - 3.4), 6.8 * k, 6.8 * k, fill=1, stroke=0)
         # the face buttons
-        fx, fy, off = 59.0, 29.0, 8.2
+        fx, fy, off = 60.0, 35.0, 7.8
         c.setFillColor(colors.HexColor("#cfcbc2"))
-        c.circle(self.X(fx), self.Y(fy), 14 * k, fill=1, stroke=0)
+        c.circle(self.X(fx), self.Y(fy), 13.5 * k, fill=1, stroke=0)
         for name, dx, dy in (("X", 0, 1), ("A", 1, 0), ("B", 0, -1), ("Y", -1, 0)):
-            self.key(name, "circle", fx + dx * off, fy + dy * off, 4.4)
-            self.label(fx + dx * off, fy + dy * off, name, 4.6)
+            self.key(name, "circle", fx + dx * off, fy + dy * off, 4.2)
+            self.label(fx + dx * off, fy + dy * off, name, 4.4)
         # menu, select, start
-        self.key("MENU", "circle", 39, 40.5, 2.6)
-        self.label(39, 36.2, "MENU", 2.6, DIM, "Sans")
-        self.key("SELECT", "rect", 27.5, 9.0, 9, 3.4, 1.7)
-        self.key("START", "rect", 41.5, 9.0, 9, 3.4, 1.7)
-        self.label(32, 5.6, "SELECT", 2.6, DIM, "Sans")
-        self.label(46, 5.6, "START", 2.6, DIM, "Sans")
-        # a speaker grille
-        c.setFillColor(colors.HexColor("#b9b5ac"))
-        for i in range(4):
-            for j in range(3):
-                c.circle(self.X(66 + i * 2.2), self.Y(6 + j * 2.2), 0.55 * k, fill=1, stroke=0)
+        self.key("MENU", "circle", 39, 47.0, 2.4)
+        self.label(39, 42.8, "MENU", 2.6, DIM, "Sans")
+        sy_ = 9.0 if self.pro else 14.0
+        self.key("SELECT", "rect", 27.5, sy_, 9, 3.4, 1.7)
+        self.key("START", "rect", 41.5, sy_, 9, 3.4, 1.7)
+        self.label(32, sy_ - 3.4, "SELECT", 2.6, DIM, "Sans")
+        self.label(46, sy_ - 3.4, "START", 2.6, DIM, "Sans")
+        if self.pro:  # the Brick Pro's two sticks, pressed for L3 / R3
+            for name, x in (("LS", 22.0), ("RS", 56.0)):
+                c.setFillColor(colors.HexColor("#cfcbc2"))
+                c.circle(self.X(x), self.Y(14.5), 6.6 * k, fill=1, stroke=0)
+                self.key(name, "circle", x, 14.5, 4.6)
+                self.label(x, 14.5, "L" if name == "LS" else "R", 3.6)
+        else:  # a speaker grille
+            c.setFillColor(colors.HexColor("#b9b5ac"))
+            for i in range(4):
+                for j in range(3):
+                    c.circle(self.X(66 + i * 2.2), self.Y(6 + j * 2.2), 0.55 * k, fill=1, stroke=0)
         # badges on the lit buttons
         pos = {"UP": (cx, cy + 6.2), "DOWN": (cx, cy - 6.2), "LEFT": (cx - 6.2, cy), "RIGHT": (cx + 6.2, cy),
                "DPAD": (cx - 8.8, cy + 8.8), "X": (fx + 4.6, fy + off + 4.0), "A": (fx + off + 4.6, fy + 4.0),
-               "B": (fx + 4.6, fy - off + 4.0), "Y": (fx - off - 3.8, fy + 4.0), "MENU": (43.5, 42.5),
-               "SELECT": (27.0, 14.5), "START": (51.0, 14.5), "L1": (29.0, H + 0.8), "R1": (W - 29.0, H + 0.8),
-               "L2": (2.6, H + 6.3), "R2": (W - 2.6, H + 6.3)}
+               "B": (fx + 4.6, fy - off + 4.0), "Y": (fx - off - 3.8, fy + 4.0), "MENU": (43.5, 49.0),
+               "SELECT": (27.0, sy_ + 5.5), "START": (51.0, sy_ + 5.5), "L1": (29.0, H + 0.8),
+               "R1": (W - 29.0, H + 0.8), "L2": (2.6, H + 6.3), "R2": (W - 2.6, H + 6.3),
+               "LS": (22.0 - 7.5, 21.0), "RS": (56.0 + 7.5, 21.0)}
         for name, n in self.lit.items():
             if name in pos:
                 self.badge(*pos[name], n)
@@ -296,14 +306,14 @@ def cover(c, doc):
     draw_logo(c, lx, h - 230, lh)
     c.setFillColor(SLATE_D)
     c.setFont("Sans-Bold", 13)
-    c.drawCentredString(w / 2, h - 300, "A drone instrument and meditation tool for the Miyoo Mini Plus")
+    c.drawCentredString(w / 2, h - 300, "A drone instrument and meditation tool for the TrimUI Brick and Brick Pro")
     c.setFont("Sans", 10.5)
     c.drawCentredString(w / 2, h - 318, "User manual  ·  version %s" % VERSION)
-    d = Miyoo("splash", width=78 * mm)
+    d = Brick("splash", width=78 * mm)
     d.drawOn(c, (w - d.width) / 2, 110)
     c.setFont("Sans", 8)
     c.setFillColor(colors.HexColor("#5a3520"))
-    c.drawCentredString(w / 2, 60, "github.com/sydilaxe/Jaffedrone-dev")
+    c.drawCentredString(w / 2, 60, "github.com/sydilaxe/Trimui-Jaffedrone-dev")
     c.restoreState()
 
 
@@ -331,14 +341,15 @@ def build(out):
 
     # -------------------------------------------------- getting started
     s += [Paragraph("Getting started", H1),
-          side(Miyoo("splash", {"START": 1, "L1": 2, "R1": 2, "MENU": 3}),
+          side(Brick("splash", {"START": 1, "L1": 2, "R1": 2, "MENU": 3}),
                Paragraph("Jaffedrone is a drone of five voices: strings that are bowed and plucked, or wind "
                          "voices that are blown and tongued, tuned to a scale and moving through chords. Each "
                          "voice has its own rhythm, or you play it by hand.", P),
                Paragraph("Install", H2),
-               Paragraph("Unzip <b>Jaffedrone-miyoo.zip</b> at the root of the SD card (it holds "
-                         "<b>App/Jaffedrone/</b>) and open <b>Apps → Jaffedrone</b>. The start-up screen shows "
-                         "for a moment; any button moves on.", P),
+               Paragraph("Unzip <b>Jaffedrone-brick.zip</b> (TrimUI Brick and Brick Hammer) or "
+                         "<b>Jaffedrone-brickpro.zip</b> (Brick Pro: it adds the sticks) at the root of the SD "
+                         "card (it holds <b>Apps/Jaffedrone/</b>) and open <b>Apps → Jaffedrone</b>. The "
+                         "start-up screen shows for a moment; any button moves on.", P),
                Paragraph("The first buttons", H2),
                table([(num(1), B("START"), "start or stop the drone (it fades in and out)"),
                       (num(2), B("START") + " + " + B("L1") + " / " + B("R1"),
@@ -366,7 +377,7 @@ def build(out):
 
     # -------------------------------------------------- PLAY: rings
     s += [Paragraph("PLAY: the rhythm rings", H1),
-          side(Miyoo("play", {"LEFT": 1, "RIGHT": 1, "UP": 2, "DOWN": 2, "A": 3, "B": 4, "X": 5, "Y": 6}),
+          side(Brick("play", {"LEFT": 1, "RIGHT": 1, "UP": 2, "DOWN": 2, "A": 3, "B": 4, "X": 5, "Y": 6}),
                Paragraph("Each string has two Euclidean rings: the <b>pluck ring</b> plucks on its pulses and "
                          "the <b>bow ring</b> swells the bow on its pulses (off, the bow plays steadily). A ring "
                          "spreads its pulses as evenly as it can over its steps, like the rhythms of HI5 and "
@@ -381,7 +392,7 @@ def build(out):
                Paragraph("A label like <b>PLUCK 70%</b> means each pulse of that ring plays seven times in "
                          "ten (set with " + B("R2") + " + " + B("X") + " / " + B("Y") + ").", SMALL))]
     s += [Spacer(1, 8), Paragraph("Shaping a ring: hold L2", H2),
-          side(Miyoo("play", {"L2": 1, "UP": 2, "DOWN": 2, "LEFT": 3, "RIGHT": 3, "X": 4, "Y": 5, "A": 6}),
+          side(Brick("play", {"L2": 1, "UP": 2, "DOWN": 2, "LEFT": 3, "RIGHT": 3, "X": 4, "Y": 5, "A": 6}),
                table([(num(1), "hold " + B("L2"), "then:"),
                       (num(2), B("▲") + " " + B("▼"), "more / fewer steps"),
                       (num(3), B("◀") + " " + B("▶"), "step length (right is faster): 1/16 to 2 bars"),
@@ -394,7 +405,7 @@ def build(out):
     s += [Paragraph("Playing by hand", H1),
           Paragraph("The shoulder buttons play the string selected on PLAY, over whatever its rings are doing. "
                     "A wind voice is tongued and blown instead.", P),
-          side(Miyoo("play_bow", {"L1": 1, "L2": 2, "R1": 3}),
+          side(Brick("play_bow", {"L1": 1, "L2": 2, "R1": 3}),
                table([(num(1), B("L1"), "pluck the selected string, the moment you press (wind: tongue a note; "
                                         "struck: the mallet)"),
                       (num(2), B("L2"),
@@ -411,7 +422,7 @@ def build(out):
                Spacer(1, 6),
                Paragraph("The bowed string's column lights while the bow is on it.", SMALL))]
     s += [Spacer(1, 8), Paragraph("Quick sound changes: hold R2", H2),
-          side(Miyoo("play", {"R2": 1, "LEFT": 2, "RIGHT": 2, "UP": 3, "DOWN": 3, "X": 4, "Y": 4, "A": 5, "B": 5}),
+          side(Brick("play", {"R2": 1, "LEFT": 2, "RIGHT": 2, "UP": 3, "DOWN": 3, "X": 4, "Y": 4, "A": 5, "B": 5}),
                table([(num(1), "hold " + B("R2"), "then:"),
                       (num(2), B("◀") + " " + B("▶"), "previous / next scale"),
                       (num(3), B("▲") + " " + B("▼"), "tone: brighter / darker"),
@@ -424,7 +435,7 @@ def build(out):
           Paragraph("In LATCH the rings rest and every string is silent until you play it. A string you pluck "
                     "or bow keeps droning, with no need to hold the button, until you play it again; then it "
                     "fades over its own RELEASE.", P),
-          side(Miyoo("latch", {"START": 1, "A": 5, "LEFT": 2, "RIGHT": 2, "L1": 3, "R1": 3, "UP": 4,
+          side(Brick("latch", {"START": 1, "A": 5, "LEFT": 2, "RIGHT": 2, "L1": 3, "R1": 3, "UP": 4,
                                "DOWN": 4, "B": 6, "X": 7, "Y": 7}),
                table([(num(1), B("START") + " + " + B("A"), "switch PLAY MODE between RINGS and LATCH (also on "
                                                              "the SONG page)"),
@@ -457,7 +468,7 @@ def build(out):
     s += [Paragraph("SOUND, COMPOSE and MIX", H1),
           Paragraph("On these pages the d-pad moves to the nearest control in that direction, and " + B("Y") +
                     " / " + B("X") + " lower / raise it. Held, they speed up.", P),
-          side(Miyoo("wind_sound", {"DPAD": 1, "Y": 2, "X": 2, "A": 3, "B": 4}),
+          side(Brick("wind_sound", {"DPAD": 1, "Y": 2, "X": 2, "A": 3, "B": 4}),
                table([(num(1), "d-pad", "move between controls"),
                       (num(2), B("Y") + " / " + B("X"), "lower / raise the control"),
                       (num(3), B("A"), "on a string's control: mute or unmute that string"),
@@ -503,7 +514,7 @@ def build(out):
                     "a short bright contact and a soft one a long dark push) or bowed (stick-slip friction, "
                     "so the modes it meets grow until they sing, as on a rubbed bowl or a bowed cymbal). "
                     "Every voice can be struck and bowed.", P),
-          side(Miyoo("wind_play", {"L1": 1, "R1": 2, "B": 3}),
+          side(Brick("wind_play", {"L1": 1, "R1": 2, "B": 3}),
                table([(num(1), B("L1"), "strike (" + B("L2") + ": a hard mallet, dropped, bouncing)"),
                       (num(2), B("R1"), "bow: the body catches and sings"),
                       (num(3), B("L1") + " + " + B("R1") + ", " + B("B"),
@@ -538,7 +549,7 @@ def build(out):
 
     # -------------------------------------------------- SONG
     s += [Paragraph("SONG: presets, chord memory and key", H1),
-          side(Miyoo("song", {"DPAD": 1, "A": 2, "X": 3, "R2": 4, "Y": 4}),
+          side(Brick("song", {"DPAD": 1, "A": 2, "X": 3, "R2": 4, "Y": 4}),
                table([(num(1), "d-pad", "choose a preset slot or a setting"),
                       (num(2), B("A"), "load the preset (your Wi-Fi and output settings stay)"),
                       (num(3), B("X"), "save the sound and rhythms to the slot"),
@@ -565,7 +576,7 @@ def build(out):
 
     # -------------------------------------------------- quiet view
     s += [Paragraph("The quiet view", H1),
-          side(Miyoo("quiet", {"START": 1, "L2": 1}),
+          side(Brick("quiet", {"START": 1, "L2": 1}),
                Paragraph(B("START") + " + " + B("L2") + " on PLAY for the quiet view: the five strings across "
                          "the screen with their rings, and only the chord in words. Again to come back.", P),
                table([(num(1), B("START") + " + " + B("L2"), "the quiet view on / off")],
@@ -598,9 +609,53 @@ def build(out):
                     "as reproduced by Vitale and Sethares). Each scale has its own way of moving through "
                     "chords.", P), PageBreak()]
 
+    # -------------------------------------------------- USB and the sticks
+    s += [Paragraph("USB: MIDI and audio", H1),
+          Paragraph("The Brick's USB-C port takes class-compliant MIDI and audio devices (through an OTG adapter "
+                    "or a hub): keyboards, controllers, sequencers, drum machines and USB sound cards. They are "
+                    "found as they are plugged in; a message names each one.", P),
+          Paragraph("MIDI in", H2),
+          table([("Notes", "each key takes a string (the one free longest) and tunes it to the key played, on "
+                           "top of the song (the song is never changed): it plucks as hard as the key is struck "
+                           "and bows while held. A wind voice is tongued and blown. In LATCH a key starts the "
+                           "string droning (a soft key swells in with the bow, a firm one plucks) and letting go "
+                           "fades it over its RELEASE"),
+                 ("Pitch bend", "two semitones"),
+                 ("Mod wheel, pressure", "how hard the held strings are bowed"),
+                 ("CC64", "sustain"), ("CC74", "TONE: darker / brighter"), ("CC91", "more / less reverb"),
+                 ("Clock", "the tempo follows it; START, CONTINUE, STOP and song position start, stop and "
+                           "place the drone")], widths=(34 * mm, None)),
+          Paragraph("MIDI out", H2),
+          Paragraph("While the drone plays, and no clock is coming in, Jaffedrone sends MIDI clock (24 a "
+                    "quarter note) with START and STOP to every MIDI port, timed to the sound as it is heard. "
+                    "It leads a drum machine or sequencer over USB as MONO+CLK does over the headphone jack.", P),
+          Paragraph("Audio", H2),
+          Paragraph("A USB sound card or DAC, once plugged in, takes the sound from the speaker and "
+                    "headphones; unplugged, the sound comes back to them.", P),
+          Paragraph("Settings", H2),
+          Paragraph("In <b>Apps/Jaffedrone/launch.sh</b>: <b>JD_MIDI_NOTES=CHANNELS</b> lets MIDI channels 1-5 "
+                    "play strings 1-5; <b>JD_MIDI_CLOCK=0</b> sends no clock; <b>JD_MIDI_FOLLOW=0</b> ignores "
+                    "the clock coming in; <b>JD_AUDIO=internal</b> keeps the sound on the speaker and "
+                    "headphones.", SMALL),
+          PageBreak()]
+    s += [Paragraph("Brick Pro: the sticks", H1),
+          side(Brick("play_bow", {"LS": 1, "RS": 2}, pro=True),
+               Paragraph("On the Brick Pro the sticks play the string selected on PLAY, and spring back when let "
+                         "go: nothing they do is saved.", P),
+               table([(num(1), "left stick ▲", "bow the string by hand: a light touch draws the bow lightly, "
+                                               "further presses harder (a wind voice: blow)"),
+                      ("", "left stick ◀ ▶", "bend the string, up to two semitones either way"),
+                      (num(2), "right stick ◀ ▶", "TONE, darker / brighter, two octaves either way"),
+                      ("", "right stick ▲ ▼", "more / less reverb"),
+                      ("", "L3 (left click)", "pluck the string"),
+                      ("", "R3 (right click)", "the next chord")], widths=(9 * mm, 30 * mm, None)),
+               Spacer(1, 6),
+               Paragraph("<b>JD_BEND=7</b> in launch.sh bends up to seven semitones.", SMALL)),
+          PageBreak()]
+
     # -------------------------------------------------- log + quick reference
     s += [Paragraph("Quick reference", H1),
-          side(Miyoo("play", {"START": "S", "SELECT": "s", "MENU": "M", "L1": "1", "R1": "2", "L2": "3",
+          side(Brick("play", {"START": "S", "SELECT": "s", "MENU": "M", "L1": "1", "R1": "2", "L2": "3",
                               "R2": "4"}, width=56 * mm),
                table([(B("START"), "start / stop the drone"),
                       (B("START") + " + " + B("L1") + "/" + B("R1"), "previous / next page"),
@@ -618,10 +673,10 @@ def build(out):
                       (B("MENU"), "leave")], widths=(36 * mm, None)), dw=60 * mm),
           Paragraph("The log", H2),
           Paragraph(B("START") + " + " + B("SELECT") + " cycles the log through OFF, BASIC and DETAIL. It is "
-                    "written to <b>App/Jaffedrone/jaffedrone_log.txt</b>: how hard the audio is working, any "
+                    "written to <b>Apps/Jaffedrone/jaffedrone_log.txt</b>: how hard the audio is working, any "
                     "dropouts, the levels, each voice's tuning (DETAIL) and what was played, with suggestions "
-                    "when something could be better. If you hear crackles, set <b>JD_BUFFER=2048</b> in "
-                    "<b>App/Jaffedrone/launch.sh</b>.", P)]
+                    "when something could be better. If you hear crackles, set <b>JD_BUFFER=1024</b> in "
+                    "<b>Apps/Jaffedrone/launch.sh</b>.", P)]
 
     doc.build(s, onFirstPage=cover, onLaterPages=later)
 

@@ -23,5 +23,7 @@ void ui_tick(int ms);
 void ui_draw(uint32_t *fb);
 int ui_quit_requested(void);
 int ui_take_changed(void);
+int ui_selected_string(void);      /* the string hand playing plays (the sticks, too) */
+void ui_notice(const char *msg);   /* a message on screen and in the log (main thread only) */
 /* the session in a few lines (presses, pages, adjustments), for the log */
 void ui_summary(void (*out)(const char *line));

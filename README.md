@@ -1,10 +1,11 @@
 # Jaffedrone
 
-A five-string drone instrument for the Miyoo Mini Plus running OnionOS. It joins an organic string drone
+A five-string drone instrument for the TrimUI Brick, Brick Hammer and Brick Pro running TrimUI OS, ported
+from the Miyoo Mini Plus version. It joins an organic string drone
 to an algorithmic progression. You can play it as an instrument, or let it run as a slowly changing drone
 for meditation.
 
-**Manual:** [docs/Jaffedrone-Manual.pdf](docs/Jaffedrone-Manual.pdf) shows each command on a drawing of the Miyoo, with the app's screens (`make manual` rebuilds it).
+**Manual:** [docs/Jaffedrone-Manual.pdf](docs/Jaffedrone-Manual.pdf) shows each command on a drawing of the Brick, with the app's screens (`make manual` rebuilds it).
 
 ## The strings
 
@@ -160,7 +161,7 @@ SUB (MIX page) gives every voice, string or wind, undertones that ring beneath i
 voice strikes a resonance n times lower, so the undertone follows the voice's pitch and dynamics.
 
 - **SUB:** how loud. At high settings the undertone is lightly saturated, adding overtones so it is heard
-  even on the Miyoo's small speaker, which plays little below about 200 Hz. Headphones bring out the full
+  even on the Brick's small speaker, which plays little below about 200 Hz. Headphones bring out the full
   depth.
 - **SUB DIV:** an octave below (OCT), a twelfth below (12TH), two octaves below (2 OCT), or the octave and the
   twelfth together (OCT+12).
@@ -431,16 +432,66 @@ Songs from earlier versions load as they sounded:
 - COUPLE, BODY, CHANGES, EVOLVE, RELATE, binaural and the sympathetic strings are off, and every pulse plays.
 - The old master gate is gone, so songs that used it play ungated.
 
-## Audio
+## USB: MIDI and audio
 
-The sound is made a buffer ahead by a thread of its own; the audio device only copies it out. The Miyoo's
-driver asks for two buffers back to back and then waits, so a sound made inside its request had only half
-a buffer's time for each, and past that it crackled for good. Made ahead it has nearly all of it, for one
-buffer (21 ms) more delay. The buttons are read every few milliseconds, apart from drawing the screen, so a
-press reaches the sound at once. Settings in `launch.sh`, before `./jaffedrone`:
+The Brick's USB-C port takes class-compliant MIDI and audio devices, through an OTG adapter or a hub. They
+are found as they are plugged in, and a message names each one.
 
-- `JD_BUFFER=512`: smaller buffers, less delay from a press to the sound (1024 by default).
-- `JD_AHEAD=0`: make the sound in the driver's request, as before 0.11.3 (to compare).
+**MIDI in** (any channel; `src/midi.h` has the details):
+
+- **Notes:** each key takes a string (the one free longest) and tunes it to the key played. The tuning is a
+  bend on top of the song, so the song is never changed. The key plucks as hard as it is struck and bows
+  while held (a wind voice is tongued and blown). In LATCH a key starts its string droning (a soft key
+  swells in with the bow, a firm one plucks), and letting go fades it over its RELEASE. With
+  `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play strings 1-5 instead.
+- **Pitch bend:** two semitones. **Mod wheel** and **pressure:** how hard the held strings are bowed.
+  **CC64:** sustain. **CC74:** TONE. **CC91:** reverb. **CC120 / CC123:** everything let go.
+- **Clock:** the tempo follows it, and its phase is held by trimming the playback speed, as Wi-Fi sync does.
+  START, CONTINUE, STOP and song position start, stop and place the drone.
+
+**MIDI out:** while the drone plays and no clock is coming in, Jaffedrone sends clock (24 a quarter note),
+START and STOP to every port. The clock is timed to the sound as it is heard, the render-ahead time behind
+the engine, so a drum machine lands on the drone's beat.
+
+**Audio:** a USB sound card or DAC takes the output while it is plugged in, and the speaker and headphones
+take it back when it is unplugged. `JD_AUDIO=internal` keeps the speaker; `JD_AUDIO=<name>` picks a device
+by name (the log lists what was opened).
+
+## Brick Pro: the sticks
+
+The Brick Pro build (`Jaffedrone-brickpro.zip`) adds the two analog sticks. They play the string selected on
+PLAY and spring back when let go; nothing they do is saved.
+
+| Stick | Does |
+|---|---|
+| left, up | bow the string by hand, from a light touch to harder than R1 (a wind voice: blow) |
+| left, left / right | bend the string, two semitones either way (`JD_BEND=7` for seven) |
+| right, left / right | TONE, darker / brighter, two octaves either way |
+| right, up / down | more / less reverb |
+| L3 / R3 (click) | pluck the string / the next chord |
+
+MIDI's pressure, bend, CC74 and CC91 use the same controls, so a stick and a controller play alike.
+
+## Audio and the four cores
+
+The A133P has four Cortex-A53 cores and 1 GB of memory. Jaffedrone uses them this way:
+
+- **The voices** (everything tied together sample by sample: strings, winds, struck bodies, the bridge
+  between them, AURA, undertones) are made on core 2.
+- **The effects** that only hear the voices (sympathetic strings, body, binaural, TONE, delay, reverb,
+  leveller, master) are made on core 3, one block behind. The busiest core does about 40% less than one
+  core making everything, and the sound is the same, sample for sample (the harness checks it).
+- **The screen, the system and MIDI** share cores 0 and 1, below the sound.
+- **Memory** is locked, so the sound never waits for a page to be read back in.
+
+The sound is made a buffer ahead; the audio device only copies it out. The buttons are read every few
+milliseconds, apart from drawing the screen, so a press reaches the sound at once. Settings in `launch.sh`,
+before `./jaffedrone`:
+
+- `JD_BUFFER=256`: smaller buffers, less delay from a press to the sound (512 by default, about 11 ms).
+- `JD_SPLIT=0`: make all the sound on one core, as on the Miyoo; `JD_PIN=0`: let the system place the
+  threads.
+- `JD_AHEAD=0`: make the sound in the driver's request (to compare).
 - `JD_RATE=44100`: a lower sample rate, about 8% less work.
 
 ## Log
@@ -464,7 +515,7 @@ SELECT** cycles it OFF, BASIC and DETAIL; LOG shows in the header while it runs,
   - **peak**, **rms** and **clips:** the output level, and samples near full scale.
   - **leveller:** how much the leveller lifts the sound.
   - **screen:** how long each frame of the screen takes to draw (about 33 ms is one frame at 30 a second).
-  - **audio:** `realtime` when the audio thread runs ahead of everything else, as it should on the Miyoo.
+  - **audio:** `realtime` when the sound's threads run ahead of everything else, as they should.
   - **cpu:** the processor's clock, its temperature and the cores running. A clock or core count that
     drops mid-session (heat, power saving) explains crackles that the load alone does not.
 - **Voices** (DETAIL): each voice's wanted and measured pitch in hertz and cents, its meter, its breath or
@@ -473,8 +524,8 @@ SELECT** cycles it OFF, BASIC and DETAIL; LOG shows in the header while it runs,
 - **Hints:** plain suggestions when something looks wrong: a high load or late callbacks (raise `JD_BUFFER`,
   or use fewer sympathetic strings), clipping (lower MASTER), a leveller lifting at full (raise LEVEL or
   BREATH), or a voice off its note (try another REG, BREATH or EMBOUCH).
-- **System report:** the launcher also writes `sysinfo.txt` beside the log: Onion's version and settings,
-  the processor, what is running and the audio driver's state at start, then a sample every 10 s while
+- **System report:** the launcher also writes `sysinfo.txt` beside the log: the firmware, the processor,
+  the sound cards, USB and input devices and what is running at start, then a sample every 10 s while
   Jaffedrone plays (up to an hour).
 - **Summary** at exit: presses per button, time on each page, the five most adjusted parameters, and how
   much was played by hand.
@@ -483,7 +534,10 @@ The audio thread only fills counters; all writing happens in the main thread.
 
 ## Build
 
-- `make` cross-compiles `dist/Jaffedrone/jaffedrone` with zig against Onion's own SDL 1.2.
+- `make` cross-compiles both builds with zig (aarch64, glibc 2.28): `build/brick/jaffedrone` for the Brick and
+  Brick Hammer, and `build/brickpro/jaffedrone` for the Brick Pro (`-DJD_BRICKPRO`: the sticks). They link
+  against a stand-in `libSDL2-2.0.so.0` made by `tools/mksdlstub.py`; the device's own SDL2 is used at run
+  time. Without zig on the path, `pip install ziglang==0.14.1` and the Makefile uses `python3 -m ziglang`.
 - The wordmark is drawn from outlines made by `tools/mklogo.py` (`src/logo_data.h`). The start-up screen's
   picture, the Jaffe house's roofline, is made from `art/roofline.jpg` by `tools/mksplash.py`
   (`dist/Jaffedrone/splash.jdi`, a 640x480 picture with 256 colours).
@@ -497,25 +551,25 @@ The audio thread only fills counters; all writing happens in the main thread.
   - each scale's progression;
   - binaural beats, harmonic touch, chance, RELATE and the string gates;
   - Wi-Fi sync;
+  - the two-core render (the same sound as one core), USB MIDI (a key's pitch, clock in and out) and the
+    sticks' bowing and bend;
   - DSP load, including the worst cases (every effect up) and that resting silent struck modes changes
     nothing that can be heard.
 - `make bench` ranks 32 voice mixtures (each voice five times over, and mixtures such as two cymbals, two
   flutes and a free reed) at their worst, heaviest first, relative to the default drone.
-- `make install SD=/path/to/card` copies the app into `App/`.
-- `make package CROSS=/opt/miyoomini-toolchain/usr/bin/arm-linux-gnueabihf-` builds with the OnionOS gcc
-  toolchain instead of zig (in the `aemiii91/miyoomini-toolchain` container) and writes
-  `build/Jaffedrone-miyoo.zip`, laid out to unzip at the root of the SD card.
+- `make install SD=/path/to/card [DEVICE=brickpro]` copies the app into `Apps/Jaffedrone`.
+- `make package` writes `build/Jaffedrone-brick.zip` and `build/Jaffedrone-brickpro.zip`, laid out to unzip
+  at the root of the SD card.
 
 ### GitHub builds and releases
 
 Every push runs the **build** workflow:
 
-- It builds the Miyoo package in the OnionOS toolchain container. The zip is kept as the run's
-  `Jaffedrone-miyoo` artifact.
+- It builds both TrimUI packages with zig. The zips are kept as the run's `Jaffedrone-trimui` artifact.
 - It runs the test harness, checking that there is no clipping, every wind exciter is in tune, the chord
   memory, key lock and presets work, and Wi-Fi sync locks. The output and screenshots are kept as
   `test-output`.
 
-To publish a release with the zip attached, go to **Actions → build → Run workflow** and fill in a tag such as
+To publish a release with both zips attached, go to **Actions → build → Run workflow** and fill in a tag such as
 `v0.11.0`. Pushing a `v*` tag, or creating a release on the website, does the same. The release text comes from
 `.github/release-notes.md`.

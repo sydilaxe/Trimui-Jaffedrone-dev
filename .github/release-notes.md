@@ -1,9 +1,21 @@
-Jaffedrone test build for the Miyoo Mini Plus (OnionOS).
+Jaffedrone test build for the TrimUI Brick, Brick Hammer and Brick Pro (TrimUI OS).
 
-**Install:** unzip `Jaffedrone-miyoo.zip` at the root of the SD card (it contains `App/Jaffedrone/`),
-then open **Apps → Jaffedrone**.
+**Install:** unzip `Jaffedrone-brick.zip` (Brick, Brick Hammer) or `Jaffedrone-brickpro.zip` (Brick Pro) at
+the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Apps → Jaffedrone**.
 
-**New in 0.13**
+**New on TrimUI**
+- Ported from the Miyoo Mini Plus: the same instrument and the same sound, on SDL2, the pages scaled 1.6x to
+  fill the 1024x768 screen.
+- **Four cores:** the voices and the effects are made on two cores of their own, a block apart (the same
+  sound, sample for sample); the screen and the system keep the other two. Half the Miyoo's audio delay
+  (512-frame buffers).
+- **USB MIDI:** keys play the strings at their own pitch, plucking by velocity and bowing while held; pitch
+  bend, mod wheel, pressure, sustain, CC74 (tone) and CC91 (reverb). Clock, START and STOP in and out.
+- **USB audio:** a USB sound card or DAC takes over the output while it is plugged in.
+- **Brick Pro:** the left stick bows (harder the further it goes) and bends the selected string, the right
+  stick moves TONE and the reverb; L3 plucks, R3 changes chord.
+
+**From the Miyoo version — new in 0.13**
 - **Mono + clock out**, as on HI5: on SONG, set **OUTPUT** to **MONO+CLK** and the sound plays in mono on one
   side of the headphone jack, with clock pulses on the other to lead a Pocket Operator, Volca or other gear.
   **CLOCK ON** picks the side, **PPQN** the pulses per quarter note (2 for PO/Volca, 24 for DIN) and
@@ -99,7 +111,8 @@ then open **Apps → Jaffedrone**.
 - Each voice can be a string or one of seven winds (VOICE row on the SOUND page).
 - Louder undertones, blown wind attacks, binaural from 0.1 to 40 Hz with journeys, even loudness.
 
-If you hear crackles, set `JD_BUFFER=2048` in `App/Jaffedrone/launch.sh`. The log is written to
-`App/Jaffedrone/jaffedrone_log.txt` (START + SELECT cycles OFF / BASIC / DETAIL).
+If you hear crackles, set `JD_BUFFER=1024` in `Apps/Jaffedrone/launch.sh`. The log is written to
+`Apps/Jaffedrone/jaffedrone_log.txt` (START + SELECT cycles OFF / BASIC / DETAIL), and the launcher writes
+a system report to `Apps/Jaffedrone/sysinfo.txt`.
 
-The manual, `App/Jaffedrone/Jaffedrone-Manual.pdf`, shows every control on a drawing of the Miyoo.
+The manual, `Apps/Jaffedrone/Jaffedrone-Manual.pdf`, shows every control on a drawing of the Brick.

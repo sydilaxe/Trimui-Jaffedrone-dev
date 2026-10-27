@@ -1,5 +1,4 @@
 build/
-third_party/onion-lib/
 dist/Jaffedrone/jaffedrone
 dist/Jaffedrone/jaffedrone.sav
 dist/Jaffedrone/jaffedrone.sav.tmp
@@ -9,3 +8,4 @@ dist/Jaffedrone/jaffedrone.cfg
 dist/Jaffedrone/preset_*.jds
 __pycache__/
 dist/Jaffedrone/jaffedrone_ui.cfg
+dist/Jaffedrone/sysinfo.txt

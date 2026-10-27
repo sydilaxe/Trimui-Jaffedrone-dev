@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Draw the OnionOS app icon: five vibrating strings.
+"""Draw the TrimUI OS app icon: five vibrating strings (drawn on an 80-unit
+grid, saved at OUT_SIZE pixels: 128 for the Brick's 1024x768 screen).
 
 usage: mkicon.py OUT.png
 """
@@ -7,6 +8,7 @@ import math
 import sys
 from PIL import Image, ImageDraw
 
+OUT_SIZE = 128
 COLORS = [(255, 120, 80), (250, 210, 70), (90, 220, 170), (90, 160, 255), (190, 130, 255)]
 
 
@@ -25,7 +27,7 @@ def main():
             t = k / (64 * s)
             pts.append((x, y + amp * math.sin(t * math.pi) * math.sin(t * math.pi * (2 + i) + i)))
         d.line(pts, fill=col, width=int(1.6 * s))
-    im.resize((size, size), Image.LANCZOS).save(sys.argv[1])
+    im.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS).save(sys.argv[1])
 
 
 if __name__ == "__main__":
