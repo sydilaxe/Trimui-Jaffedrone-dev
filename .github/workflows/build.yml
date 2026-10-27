@@ -1,0 +1,124 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a GitHub release with this tag (e.g. v0.11.0). Leave empty to just build."
+        required: false
+        default: ""
+
+jobs:
+  miyoo:
+    name: Miyoo Mini Plus package
+    runs-on: ubuntu-latest
+    container: aemiii91/miyoomini-toolchain:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          # generated files are committed; keep make from regenerating them
+          touch src/font_data.h src/logo_data.h dist/Jaffedrone/icon.png dist/Jaffedrone/splash.jdi
+          command -v zip >/dev/null && command -v unzip >/dev/null || (apt-get update && apt-get install -y zip unzip)
+          make package CROSS=/opt/miyoomini-toolchain/usr/bin/arm-linux-gnueabihf-
+          ls -l build/Jaffedrone-miyoo.zip
+          unzip -l build/Jaffedrone-miyoo.zip | grep -q "App/Jaffedrone/Jaffedrone-Manual.pdf"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jaffedrone-miyoo
+          path: build/Jaffedrone-miyoo.zip
+
+  test:
+    name: Engine and UI tests (host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the test harness
+        run: |
+          touch src/font_data.h src/logo_data.h dist/Jaffedrone/icon.png dist/Jaffedrone/splash.jdi
+          make build/jd_test build/jd_bench
+          mkdir -p build/test
+          build/jd_test build/test | tee build/test/results.txt
+      - name: The manual is up to date
+        run: python3 tools/mkmanual.py --check docs/Jaffedrone-Manual.pdf
+      - name: Check the results
+        run: |
+          r=build/test/results.txt
+          grep -q "struck skipping: .*(want over 60: 1)" $r
+          grep -q "struck cache: same sound as working the modes out every time 1" $r
+          grep -q "render ahead: .* made ahead [01] (want under 2); same sound 1" $r
+          awk '/^render ahead:/ { exit !($12 + 0 >= 20) }' $r
+          test "$(grep -c '^dsp WORST .*sounding 1' $r)" -eq 3
+          grep -q "0 full-scale samples (want 0)" $r
+          # every wind exciter in tune in every material
+          test "$(grep -c '^wind .*12/12 in tune' $r)" -eq 7
+          grep -q "matched the memory 8/8" $r
+          grep -q "notes outside the mode 0, detuned notes 0" $r
+          grep -q "presets: saved YAMAN, changed to .*, loaded back -> YAMAN" $r
+          grep -q "sync: bpm=128.0 peers=1 leader=1" $r
+          grep -q "ombak 4 Hz: L/R flips 0 (want 0), swells 4.0 per s" $r
+          grep -q "balinese tunings: 3/3 profiles in place" $r
+          grep -q "save compat v0.7: load=1 scale=SEDANG voice5=FLUTE release=55 playmode=0 bpm=66" $r
+          # a voice change fades the old voice out rather than cutting it
+          awk '/^voice switch:/ { exit !($3 + 0 > 75) }' $r
+          grep -q "^voice switch:" $r
+          grep -q "latch release 12 s: .*: 1)" $r
+          grep -q "save compat v0.8: load=1 scale=TIRUS playmode=1 release=80 attack=68" $r
+          grep -q "save compat v0.11: load=1 attack=42 s ring=77 air=0 listening=0" $r
+          grep -q "save compat v0.12: load=1 bpm=70 playmode=1 air=33 output=0" $r
+          grep -q "clock out: 2 PPQN at 120 BPM on the right -> 16 pulses in 4 s, mean gap 250.00 ms, width 5.00 ms, other values 0" $r
+          grep -q "clock out: 24 PPQN at 120 BPM on the right -> 192 pulses in 4 s, mean gap 20.83 ms, width 5.00 ms, other values 0" $r
+          grep -q "clock out: 2 PPQN at 120 BPM on the left -> 16 pulses .* other values 0" $r
+          grep -q "clock out stopped: pulses 0 (want 0)" $r
+          grep -q "air in latch: .*(want them singing: 1), a listener refuses the latch 1" $r
+          grep -q "latch attack: .*: 1)" $r
+          grep -q "latch harmonic: .*(x2.0" $r
+          grep -q "buttons: L1 -> PLUCK, L2 -> STRIKE" $r
+          grep -q "mallet drop: .*(want 3 or more: 1); .*(want a flutter: 1)" $r
+          grep -q "strike: .*brighter: 1)" $r
+          grep -q "both shoulders: LATCH R1 then L1 .*(x2.00), let go .*, still droning 1; L1 then R1 x2.00; RINGS R1 then L1 .*(x2.00)" $r
+          grep -q "struck checks: tune 1, drum shorter 1, bowl sings 1, cymbal sings 1, hard brighter 1, touch higher 1" $r
+          grep -q "family jump: LIP -> GENDER -> STRING" $r
+          grep -q "metal drone: RING DRONE, .*(want over 70%: 1); beyond: 3/3 sound" $r
+          grep -q "struck limiter: .*(want it levelled off: 1)" $r
+          grep -q "latch checks: silent 1, starts 1, drones 1, fades 1, bow swells 1, wind drones 1 and fades 1" $r
+          # strings and winds side by side; a v0.5 WIND song loads as winds
+          grep -q "v0.5 WIND song load 1 voices DOUBLE DOUBLE body 6 (want GLASS 6)" $r
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-output
+          path: build/test/
+
+  release:
+    name: Publish release
+    # runs for: a pushed v* tag, a release created on the website, or a manual run with a tag filled in
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || inputs.release_tag != ''
+    needs: [miyoo, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jaffedrone-miyoo
+      - name: Create GitHub release with the Miyoo package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" Jaffedrone-miyoo.zip --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" Jaffedrone-miyoo.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Jaffedrone $TAG (test build)" \
+              --notes-file .github/release-notes.md \
+              --prerelease
+          fi

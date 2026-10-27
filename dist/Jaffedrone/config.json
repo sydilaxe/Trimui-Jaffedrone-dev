@@ -1,0 +1,6 @@
+{
+"label":"Jaffedrone",
+"icon":"icon.png",
+"launch":"launch.sh",
+"description":"5-string drone synth, Jaffe-Smith plucked strings (MENU to exit)"
+}
