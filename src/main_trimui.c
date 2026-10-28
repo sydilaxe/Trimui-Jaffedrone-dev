@@ -24,6 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "aclock.h"
 #include "ahead.h"
 #include "engine.h"
 #include "gfx.h"
@@ -69,6 +70,13 @@ static AudioTiming timing;
 static uint64_t clock0_us, made_us;
 static int use_ahead;
 
+/* make sound, and note where the music is after it for Wi-Fi sync */
+static void render_marked(int16_t *out, int frames)
+{
+    engine_render(out, frames);
+    aclock_made(frames, engine_position(), engine_steps_per_frame());
+}
+
 static void audio_cb(void *ud, Uint8 *stream, int len)
 {
     (void)ud;
@@ -88,11 +96,14 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
     }
     made_us += timing.buffer_us;
     timing.calls++;
+    aclock_request(t0, len / 4);
     if (use_ahead) {
-        ahead_read((int16_t *)stream, len / 4);
+        int got = ahead_read((int16_t *)stream, len / 4);
+        if (got < len / 4)
+            aclock_silence(len / 4 - got);
         return;
     }
-    engine_render((int16_t *)stream, len / 4);
+    render_marked((int16_t *)stream, len / 4);
     uint32_t spent = (uint32_t)(now_us() - t0);
     timing.us_sum += spent;
     if (spent > timing.us_max)
@@ -463,12 +474,16 @@ int main(int argc, char **argv)
      * JD_CHUNK: the pieces they are made in */
     int ahead = env_int("JD_AHEAD", bufsz);
     int chunk = env_int("JD_CHUNK", 128);
+    /* the driver holds about a buffer before it's heard; JD_SYNC_LATENCY
+     * (frames) lines this unit up with other apps by ear if needed. Set once:
+     * a USB device plugged in later keeps the frames already made ahead. */
+    aclock_init(rate, env_int("JD_SYNC_LATENCY", bufsz));
     int have_audio = open_output(pick_output(), 0);
     if (have_audio && ahead > 0) {
         if (split)
             use_ahead = ahead_start_split(rate, chunk, ahead, 1, pin ? 2 : -1, pin ? 3 : -1);
         if (!use_ahead)
-            use_ahead = ahead_start(engine_render, rate, chunk, ahead, 1);
+            use_ahead = ahead_start(render_marked, rate, chunk, ahead, 1);
         /* the first buffer made before the device asks for it */
         for (int i = 0; use_ahead && i < 100 && ahead_ready() < ahead; i++)
             SDL_Delay(2);

@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "aclock.h"
+
 /* fmaxf / fminf are library calls on the Cortex-A7 (no VMAXNM before
  * ARMv8) and on x86 without fast-math: plain compares are much cheaper */
 static inline float jd_maxf(float a, float b) { return a > b ? a : b; }
@@ -978,13 +980,17 @@ double engine_position(void) { return ((double)beat + beat_phase) * 4.0; }
 
 void engine_set_position(double steps)
 {
+    double was = engine_position();
     if (steps < 0.0)
         steps = 0.0;
     beat = (uint32_t)(steps / 4.0);
     beat_phase = steps / 4.0 - beat;
     live.beat = beat;
     last16 = (int64_t)beat * 4 + (int)(beat_phase * 4.0); /* no double hit after a jump */
+    aclock_shift(engine_position() - was);
 }
+
+double engine_steps_per_frame(void) { return live.playing && sr > 0.f ? bpm_f / 15.0 / sr * sync_rate : 0.0; }
 
 /* a new 16th: advance the rings, pluck, open bows, maybe change chord */
 static void on_step(int64_t k)

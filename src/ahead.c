@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "ahead.h"
+#include "aclock.h"
 #include "engine.h"
 
 #include <pthread.h>
@@ -73,6 +74,9 @@ static void *loop_voices(void *arg)
         uint64_t t0 = now_us();
         pthread_mutex_lock(&eng);
         engine_voices(blk[i % NBLK], chunk_);
+        /* the voices move the music on; these frames reach the speaker in
+         * this order, a block later, so the audio clock counts them here */
+        aclock_made(chunk_, engine_position(), engine_steps_per_frame());
         pthread_mutex_unlock(&eng);
         count((uint32_t)(now_us() - t0), &st.us_voices);
         pthread_mutex_lock(&mx);
@@ -284,7 +288,7 @@ int ahead_ready(void)
     return n;
 }
 
-void ahead_read(int16_t *out, int frames)
+int ahead_read(int16_t *out, int frames)
 {
     /* wait for the frames, at most a buffer's time: past that the device
      * would run dry anyway, and the missing part is silence */
@@ -319,6 +323,7 @@ void ahead_read(int16_t *out, int frames)
     rpos = r + n;
     pthread_cond_signal(&want); /* room again: make more */
     pthread_mutex_unlock(&mx);
+    return n;
 }
 
 /* both stages held, always in this order */

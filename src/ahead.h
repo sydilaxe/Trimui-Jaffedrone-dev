@@ -26,8 +26,9 @@ int ahead_split(void); /* running in two stages */
 void ahead_stop(void);
 int ahead_rt(void); /* the thread got real-time priority */
 /* copy `frames` stereo frames out, waiting briefly for them if they are
- * still being made; whatever is missing is silence */
-void ahead_read(int16_t *out, int frames);
+ * still being made; whatever is missing is silence. Returns the frames
+ * that were there. */
+int ahead_read(int16_t *out, int frames);
 int ahead_ready(void); /* frames made and waiting */
 /* hold the sound still while its settings change (the thread's lock) */
 void ahead_lock(void);
