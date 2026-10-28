@@ -74,6 +74,8 @@ jobs:
           grep -q "notes outside the mode 0, detuned notes 0" $r
           grep -q "presets: saved YAMAN, changed to .*, loaded back -> YAMAN" $r
           grep -q "sync: bpm=128.0 peers=1 leader=1" $r
+          grep -q "^sync timing: .*(want under 1 and 2: 1)" $r
+          grep -q "^sync timing, a leader without echo: .*(want under 6: 1)" $r
           grep -q "ombak 4 Hz: L/R flips 0 (want 0), swells 4.0 per s" $r
           grep -q "balinese tunings: 3/3 profiles in place" $r
           grep -q "save compat v0.7: load=1 scale=SEDANG voice5=FLUTE release=55 playmode=0 bpm=66" $r

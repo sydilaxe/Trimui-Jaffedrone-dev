@@ -493,6 +493,9 @@ before `./jaffedrone`:
   threads.
 - `JD_AHEAD=0`: make the sound in the driver's request (to compare).
 - `JD_RATE=44100`: a lower sample rate, about 8% less work.
+- `JD_SYNC_LATENCY=512`: the frames the sound driver holds before they're heard (the buffer size by default).
+  Wi-Fi sync lines units up by what is heard, to within a millisecond or so; change this only if this unit
+  sounds early or late against another app's.
 
 ## Log
 

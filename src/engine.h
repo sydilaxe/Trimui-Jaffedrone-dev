@@ -239,6 +239,7 @@ float engine_symp_meter(int k);
 double engine_position(void);
 void engine_set_position(double steps);
 void engine_set_rate(double r);
+double engine_steps_per_frame(void); /* how far the position moves each frame */
 float engine_bpm(void);
 void engine_set_bpm(float bpm);
 

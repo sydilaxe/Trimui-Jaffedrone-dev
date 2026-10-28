@@ -15,8 +15,8 @@ TARGET := aarch64-linux-gnu.2.28
 CPU    := cortex_a53
 SDL_INC := third_party/SDL2-2.30.9-headers
 
-SRC    := src/engine.c src/ui.c src/gfx.c src/sync.c src/log.c
-HDR    := src/engine.h src/ui.h src/gfx.h src/sync.h src/log.h src/font_data.h src/logo_data.h
+SRC    := src/engine.c src/ui.c src/gfx.c src/sync.c src/aclock.c src/log.c
+HDR    := src/engine.h src/ui.h src/gfx.h src/sync.h src/aclock.h src/log.h src/font_data.h src/logo_data.h
 PLAT   := src/ahead.c src/midi.c src/main_trimui.c
 PLATH  := src/ahead.h src/midi.h
 CFLAGS := -O2 -std=gnu11 -Wall -Wextra -fno-math-errno
