@@ -4,12 +4,18 @@
  * is needed on the device. Ports are found as they are plugged in.
  *
  * In (any channel):
- *   notes          NOTES=POLY (default): each note takes a string (the one
- *                  free longest) and tunes it to the key played, as a bend
+ *   notes          NOTES=POLY (default): a key takes a voice and tunes it
+ *                  to the key played, as a bend
  *                  on top of the song (the song itself is never changed);
  *                  it plucks as hard as the key is struck and bows while
  *                  held (a wind: tongues and blows; LATCH: drones until the
  *                  key is let go, a soft key swelling in with the bow).
+ *                  The first key plays the voice selected on PLAY; each
+ *                  key added while others are held takes the next free
+ *                  voice round from the last one taken (a chord builds
+ *                  across the voices, a run of keys rotates through them);
+ *                  with every voice held, the key held longest gives its
+ *                  voice up. Muted and listening (AURA) voices are skipped.
  *                  NOTES=CHANNELS: channels 1-5 play strings 1-5 the same
  *                  way, other channels the selected string.
  *   pitch bend     two semitones
@@ -38,5 +44,6 @@ int midi_take_notice(char *buf, int n);
  * harness: bytes in, as if from a port, at a time in microseconds */
 void midi_feed(const uint8_t *b, int n, uint64_t now_us);
 void midi_reset(void);
+int midi_voice_of(int ch, int note); /* the voice a held key plays, or -1 */
 /* the clock out, stepped by hand: returns the bytes it would send now */
 int midi_clock_step(uint64_t now_us, uint8_t *out, int max);

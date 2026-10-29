@@ -79,6 +79,7 @@ jobs:
           grep -q "render split: two threads 1, .*same sound 1" $r
           # USB MIDI and the Brick Pro's sticks
           grep -q "midi key: A3 -> .*(want 220: 1)" $r
+          grep -q "^midi voices: .*muted skipped (1): 1$" $r
           grep -q "midi clock in: START plays 1, 120 BPM -> .* (1), STOP stops 1" $r
           grep -q "midi clock out: START 1, .*(want 192: 1), STOP 1" $r
           grep -q "stick: .*(lighter is softer: 1); bend +2 .*(want 1.122: 1)" $r

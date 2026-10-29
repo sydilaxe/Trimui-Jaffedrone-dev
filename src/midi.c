@@ -108,6 +108,20 @@ static float pressure(const Hold *h)
     return p * (1.f + 0.5f * wheel);
 }
 
+/* a voice a key may take: sounding (not muted), and not one that only
+ * listens (AURA) */
+static int playable(int s)
+{
+    return song.on[s] && !(song.fx[FX_AIR] > 0 && song.sp[s][SP_LISTEN] == AIR_LISTENS);
+}
+
+static int last_s = -1; /* the voice the last new key took */
+
+/* POLY: the first key plays the voice selected on PLAY; each key added
+ * while others are held takes the next free voice round from the last one
+ * taken, so a chord builds across the voices and a run of overlapping keys
+ * rotates through them; with every voice held, the key held longest gives
+ * its voice up */
 static int pick_string(int ch, int note)
 {
     for (int s = 0; s < NS; s++) /* the key again: the same string */
@@ -115,17 +129,31 @@ static int pick_string(int ch, int note)
             return s;
     if (notes_mode == NOTES_CHANNELS)
         return ch < NS ? ch : ui_selected_string();
+    int sel = ui_selected_string(), any_held = 0, any_playable = 0;
+    for (int s = 0; s < NS; s++)
+        any_held |= hold[s].held, any_playable |= playable(s);
+    if (!any_held && (playable(sel) || !any_playable))
+        return sel;
+    int from = any_held && last_s >= 0 ? last_s : sel;
+    for (int k = 1; k <= NS; k++) {
+        int s = (from + k) % NS;
+        if (!hold[s].held && playable(s))
+            return s;
+    }
     int best = -1;
     uint64_t oldest = UINT64_MAX;
-    for (int s = 0; s < NS; s++) /* free the longest, playing or not */
-        if (!hold[s].held && song.on[s] && hold[s].off_us < oldest)
-            oldest = hold[s].off_us, best = s;
-    if (best >= 0)
-        return best;
     for (int s = 0; s < NS; s++) /* all held: the one held longest */
-        if (hold[s].on_us < oldest)
+        if (hold[s].held && (playable(s) || !any_playable) && hold[s].on_us < oldest)
             oldest = hold[s].on_us, best = s;
-    return best;
+    return best >= 0 ? best : sel;
+}
+
+int midi_voice_of(int ch, int note)
+{
+    for (int s = 0; s < NS; s++)
+        if (hold[s].held && hold[s].note == note && hold[s].ch == ch)
+            return s;
+    return -1;
 }
 
 static void let_go(int s, uint64_t t)
@@ -157,6 +185,7 @@ static void note_on(int ch, int note, int vel, uint64_t t)
     h->note = note, h->ch = ch, h->vel = vel;
     h->held = 1, h->sustained = 0;
     h->on_us = t;
+    last_s = s;
     retune(s);
     if (!live.playing)
         engine_set_playing(1);
@@ -385,6 +414,7 @@ void midi_reset(void)
     for (int c = 0; c < 16; c++)
         pb[c] = 0.f, sustain[c] = 0, press[c] = -1.f;
     wheel = 0.f;
+    last_s = -1;
     tick_us = ext_seen_us = 0;
     tick_avg_us = 0.0;
     ticks = 0;

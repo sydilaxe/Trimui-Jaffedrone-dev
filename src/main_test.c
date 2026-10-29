@@ -2074,6 +2074,51 @@ int main(int argc, char **argv)
         printf("midi key: A3 -> %.1f Hz (want 220: %d), string tuned %.2f\n", key_hz, fabs(key_hz - 220.0) < 2.0,
                engine_string_pitch(0));
 
+        /* which voice each key takes: the first the one selected on PLAY, a
+         * chord across the next ones, overlapping keys rotating, and with
+         * every voice held the oldest key giving its voice up */
+        {
+            song_default();
+            song.gp[GP_CHANGES] = 0;
+            engine_init(RATE);
+            engine_set_playing(1);
+            midi_reset();
+            int sel = ui_selected_string(), v[16], n = 0;
+            uint64_t tk = 5000000;
+            uint8_t m[3] = {0x90, 0, 100};
+#define KEY_ON(k) (m[0] = 0x90, m[1] = (uint8_t)(k), m[2] = 100, midi_feed(m, 3, tk += 1000), midi_voice_of(0, k))
+#define KEY_OFF(k) (m[0] = 0x80, m[1] = (uint8_t)(k), m[2] = 0, midi_feed(m, 3, tk += 1000))
+            v[n++] = KEY_ON(60), v[n++] = KEY_ON(64), v[n++] = KEY_ON(67); /* a chord */
+            KEY_OFF(60), KEY_OFF(64), KEY_OFF(67);
+            v[n++] = KEY_ON(62); /* alone again: the selected voice */
+            v[n++] = KEY_ON(65); /* overlapping: the next */
+            KEY_OFF(62);
+            v[n++] = KEY_ON(69); /* still overlapping: on round */
+            KEY_OFF(65), KEY_OFF(69);
+            int chord_ok = v[0] == sel && v[1] == (sel + 1) % NS && v[2] == (sel + 2) % NS;
+            int alone_ok = v[3] == sel, rot_ok = v[4] == (sel + 1) % NS && v[5] == (sel + 2) % NS;
+            /* five held, then a sixth: it takes the first key's voice */
+            for (int k = 0; k < NS; k++)
+                KEY_ON(48 + k);
+            int first = midi_voice_of(0, 48), steal = KEY_ON(70), gone = midi_voice_of(0, 48);
+            for (int k = 0; k < NS; k++)
+                KEY_OFF(48 + k);
+            KEY_OFF(70);
+            /* a muted voice is passed over */
+            song.on[(sel + 1) % NS] = 0;
+            int a = KEY_ON(60), b = KEY_ON(64);
+            KEY_OFF(60), KEY_OFF(64);
+            song.on[(sel + 1) % NS] = 1;
+            int mute_ok = a == sel && b == (sel + 2) % NS;
+#undef KEY_ON
+#undef KEY_OFF
+            printf("midi voices: selected %d, chord %d %d %d (1), alone %d (1), overlapping %d %d (1), "
+                   "sixth key takes voice %d of the oldest %d (1), muted skipped (1): %d\n",
+                   sel, v[0], v[1], v[2], alone_ok, v[4], v[5], steal, first,
+                   chord_ok && alone_ok && rot_ok && steal == first && gone < 0 && mute_ok);
+            midi_reset();
+        }
+
         song_default();
         engine_init(RATE);
         engine_set_playing(0);

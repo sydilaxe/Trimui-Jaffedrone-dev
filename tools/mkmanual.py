@@ -615,8 +615,11 @@ def build(out):
                     "or a hub): keyboards, controllers, sequencers, drum machines and USB sound cards. They are "
                     "found as they are plugged in; a message names each one.", P),
           Paragraph("MIDI in", H2),
-          table([("Notes", "each key takes a string (the one free longest) and tunes it to the key played, on "
-                           "top of the song (the song is never changed): it plucks as hard as the key is struck "
+          table([("Notes", "each key takes a voice and tunes it to the key played, on top of the song (the song "
+                           "is never changed). The first key plays the voice selected on PLAY; each key added "
+                           "while others are held takes the next free voice, so chords build across the voices "
+                           "and overlapping keys rotate through them; with all five held, the key held longest "
+                           "gives up its voice. Muted voices are passed over. A key plucks as hard as it is struck "
                            "and bows while held. A wind voice is tongued and blown. In LATCH a key starts the "
                            "string droning (a soft key swells in with the bow, a firm one plucks) and letting go "
                            "fades it over its RELEASE"),
