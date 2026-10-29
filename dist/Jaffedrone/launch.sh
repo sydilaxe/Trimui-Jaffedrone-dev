@@ -34,6 +34,7 @@ export LD_LIBRARY_PATH="/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH"
 #   JD_STICK_REACH=80  Brick Pro: take a stick to reach 80% of the way until it shows it goes further (60)
 #   JD_LEDS=0          Brick Pro: leave the lights around the sticks alone
 #   JD_ROTATE=180      turn the picture, for a firmware whose screen is turned
+#   JD_SCREEN_REBUILD=0  don't make the renderer again after the MustardOS screen wake
 #   JD_JOYMAP=A=1,B=0  another firmware's button numbers (also L2, R2, L3, R3)
 # The log, jaffedrone_log.txt, is set from the app: START + SELECT cycles OFF, BASIC and DETAIL;
 # DETAIL adds a status line every second and every button press as the controller sends it.

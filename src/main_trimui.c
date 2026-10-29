@@ -186,6 +186,90 @@ static void audio_hotplug(void)
     ui_notice(msg);
 }
 
+/* ------------------------------------------------------------- screen */
+
+/* The window, its renderer and the texture the 640x480 page is drawn into.
+ * A display that is switched off and on (wake_screen.sh does that, as
+ * waking from sleep does) can take the renderer's picture with it: SDL then
+ * reports a reset, or drawing fails, and the screen stays black while the
+ * app runs on. So the texture (or the renderer and texture) is made again
+ * when SDL says so, when drawing fails, and once after the screen wake has
+ * had time to finish. Each is logged. */
+static SDL_Window *win;
+static SDL_Renderer *ren;
+static SDL_Texture *tex;
+static int screen_reset; /* 1: the texture, 2: the renderer and texture */
+static int draw_fails;
+static uint32_t last_rebuild;
+
+static void make_renderer(void)
+{
+    ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
+    if (!ren)
+        ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
+}
+static void make_texture(void)
+{
+    tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H)
+              : NULL;
+}
+
+static void screen_rebuild(int renderer, const char *why)
+{
+    if (tex)
+        SDL_DestroyTexture(tex);
+    tex = NULL;
+    if (renderer) {
+        if (ren)
+            SDL_DestroyRenderer(ren);
+        ren = NULL;
+        make_renderer();
+    }
+    make_texture();
+    last_rebuild = SDL_GetTicks();
+    jdlog("screen: %s made again (%s)%s%s", renderer ? "renderer and picture" : "picture", why,
+          tex ? "" : ": failed, ", tex ? "" : SDL_GetError());
+}
+
+static void present(const uint32_t *fb, const SDL_Rect *dst, int rot)
+{
+    if (screen_reset) {
+        screen_rebuild(screen_reset == 2, "SDL reset it");
+        screen_reset = 0;
+    }
+    int bad = !tex || SDL_UpdateTexture(tex, NULL, fb, SCREEN_W * 4) < 0;
+    if (ren) {
+        SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+        SDL_RenderClear(ren);
+        bad |= !tex || SDL_RenderCopyEx(ren, tex, NULL, dst, rot, NULL, SDL_FLIP_NONE) < 0;
+        SDL_RenderPresent(ren);
+    }
+    else
+        bad = 1;
+    if (bad) {
+        if (draw_fails++ < 5)
+            jdlog("screen: drawing failed: %s", SDL_GetError());
+        /* at most once a second: the texture first, then everything */
+        if (SDL_GetTicks() - last_rebuild > 1000)
+            screen_rebuild(draw_fails > 2 || !ren, "drawing failed");
+    }
+}
+
+static const char *window_event_name(int e)
+{
+    switch (e) {
+    case SDL_WINDOWEVENT_SHOWN: return "shown";
+    case SDL_WINDOWEVENT_HIDDEN: return "hidden";
+    case SDL_WINDOWEVENT_EXPOSED: return "exposed";
+    case SDL_WINDOWEVENT_MINIMIZED: return "minimized";
+    case SDL_WINDOWEVENT_RESTORED: return "restored";
+    case SDL_WINDOWEVENT_FOCUS_GAINED: return "focus gained";
+    case SDL_WINDOWEVENT_FOCUS_LOST: return "focus lost";
+    case SDL_WINDOWEVENT_SIZE_CHANGED: return "size changed";
+    }
+    return NULL;
+}
+
 /* ------------------------------------------------------------- input */
 
 /* The buttons, as SDL sees them. The d-pad is hat 0 everywhere.
@@ -598,6 +682,18 @@ static void on_event(const SDL_Event *e)
         if (!e->adevice.iscapture)
             audio_hotplug();
         break;
+    case SDL_RENDER_TARGETS_RESET:
+    case SDL_RENDER_DEVICE_RESET:
+        jdlog("screen: SDL says the %s was reset", e->type == SDL_RENDER_DEVICE_RESET ? "renderer" : "picture");
+        screen_reset = e->type == SDL_RENDER_DEVICE_RESET ? 2 : (screen_reset ? screen_reset : 1);
+        break;
+    case SDL_WINDOWEVENT: {
+        static int logged; /* the first few: a driver can send many at start */
+        const char *n = window_event_name(e->window.event);
+        if (n && logged < 12)
+            jdlog("screen: window %s%s", n, ++logged == 12 ? " (no more window events logged)" : "");
+        break;
+    }
     case SDL_QUIT:
         got_signal = 1;
         break;
@@ -613,6 +709,7 @@ static void on_event(const SDL_Event *e)
  * background (a double fork, so nothing is left to reap), never waited for.
  * As in Columbia Street and HI5. */
 #define SCREEN_WAKE_FRAME 10 /* about a third of a second of frames */
+#define SCREEN_REBUILD_AFTER 75 /* frames after the wake: 2.5 s, past its second pass */
 static void screen_wake(void)
 {
     const char *cmd = getenv("JD_SCREEN_WAKE");
@@ -683,13 +780,11 @@ int main(int argc, char **argv)
     int sw = 1024, sh = 768;
     if (SDL_GetCurrentDisplayMode(0, &dm) == 0 && dm.w > 0 && dm.h > 0)
         sw = dm.w, sh = dm.h;
-    SDL_Window *win = SDL_CreateWindow("Jaffedrone", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, sw, sh,
-                                       SDL_WINDOW_SHOWN | (env_int("JD_WINDOWED", 0) ? 0 : SDL_WINDOW_FULLSCREEN));
-    SDL_Renderer *ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED) : NULL;
-    if (win && !ren)
-        ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
-    SDL_Texture *tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                               SCREEN_W, SCREEN_H) : NULL;
+    win = SDL_CreateWindow("Jaffedrone", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, sw, sh,
+                           SDL_WINDOW_SHOWN | (env_int("JD_WINDOWED", 0) ? 0 : SDL_WINDOW_FULLSCREEN));
+    if (win)
+        make_renderer();
+    make_texture();
     if (!tex) {
         fprintf(stderr, "jaffedrone: video: %s\n", SDL_GetError());
         SDL_Quit();
@@ -773,7 +868,10 @@ int main(int argc, char **argv)
         midi_start(pin ? 1 : -1);
     jdlog("startup: running after %.2f s", (now_us() - t_start) / 1e6);
     Uint32 last = SDL_GetTicks(), last_save = last, next_draw = last;
-    int frames = 0;
+    int frames = 0, splash_was = 1;
+    /* the renderer is made again once the screen wake has finished, if one runs */
+    const char *wake_cmd = getenv("JD_SCREEN_WAKE");
+    int screen_rebuild_on = env_int("JD_SCREEN_REBUILD", 1) && wake_cmd && *wake_cmd;
     static uint32_t fb[SCREEN_W * SCREEN_H];
     while (!ui_quit_requested() && !got_signal) {
         SDL_Event e;
@@ -804,14 +902,22 @@ int main(int argc, char **argv)
         leds_update();
         stick_cfg_save();
 #endif
+        int splash = ui_splash_showing();
         ui_draw(fb);
-        SDL_UpdateTexture(tex, NULL, fb, SCREEN_W * 4);
-        SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-        SDL_RenderClear(ren);
-        SDL_RenderCopyEx(ren, tex, NULL, &dst, rot, NULL, SDL_FLIP_NONE);
-        SDL_RenderPresent(ren);
+        present(fb, &dst, rot);
         if (++frames == SCREEN_WAKE_FRAME)
             screen_wake();
+        /* the wake has finished (it runs twice, a second apart): the
+         * renderer is made again in case the display took its picture with
+         * it (JD_SCREEN_REBUILD=0: not) */
+        if (frames == SCREEN_WAKE_FRAME + SCREEN_REBUILD_AFTER && screen_rebuild_on)
+            screen_rebuild(1, "after the screen wake");
+        if (frames == 1 || frames == SCREEN_WAKE_FRAME || (splash_was && !splash))
+            jdlog("screen: %s at frame %d, %.1f s in, window%s%s", frames == 1 ? "first frame" : splash ? "frame"
+                  : "first page", frames, (now_us() - t_start) / 1e6,
+                  SDL_GetWindowFlags(win) & SDL_WINDOW_SHOWN ? " shown" : " not shown",
+                  SDL_GetWindowFlags(win) & SDL_WINDOW_MINIMIZED ? ", minimized" : "");
+        splash_was = splash;
 
         if (now - last_save > 15000) {
             last_save = now;

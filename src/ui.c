@@ -161,6 +161,7 @@ void ui_summary(void (*out)(const char *line))
 static int splash_ms; /* the start-up screen, until a button or this runs out */
 void ui_init(void) { splash_ms = 2500; }
 int ui_selected_string(void) { return cur_s; }
+int ui_splash_showing(void) { return splash_ms > 0; }
 
 /* the Brick Pro's right stick: up / down plays HARM, left / right the
  * SOUND control mapped to it (R3 on a SOUND row maps that row) */

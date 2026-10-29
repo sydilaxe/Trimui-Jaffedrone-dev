@@ -22,6 +22,7 @@ void ui_button(int btn, int down);
 void ui_tick(int ms);
 void ui_draw(uint32_t *fb);
 int ui_quit_requested(void);
+int ui_splash_showing(void); /* the start-up screen is up */
 int ui_take_changed(void);
 int ui_selected_string(void);      /* the string hand playing plays (the sticks, too) */
 void ui_notice(const char *msg);

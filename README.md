@@ -27,7 +27,11 @@ layout MustardOS is set to; the log names the controller it found. On the Brick 
 after an app opens under MustardOS (it plays, but nothing shows until the power button sleeps and wakes the
 device), so once its window is up Jaffedrone runs `wake_screen.sh`, which does what MustardOS does on
 waking: the framebuffer blanked and unblanked, and the saved brightness applied again.
-`JD_SCREEN_WAKE=` (empty) in `mux_launch.sh` turns it off.
+`JD_SCREEN_WAKE=` (empty) in `mux_launch.sh` turns it off. Switching the display off and on can take the
+app's picture with it (the start-up screen shows, then black), so once the wake has finished the app makes
+its renderer again; it also does when SDL reports the picture lost or drawing fails. `JD_SCREEN_REBUILD=0`
+skips the planned rebuild. The log's `screen:` lines follow all of this: the first frame, the wake, the
+first page after the start-up screen, window events, rebuilds and any drawing errors.
 
 With a card mounted, `make install SD=/path/to/card` does the same from a build (add `DEVICE=brickpro` for
 the Brick Pro, `OS=mustardos` for MustardOS).
@@ -464,11 +468,17 @@ are found as they are plugged in, and a message names each one.
 
 **MIDI in** (any channel; `src/midi.h` has the details):
 
-- **Notes:** each key takes a string (the one free longest) and tunes it to the key played. The tuning is a
-  bend on top of the song, so the song is never changed. The key plucks as hard as it is struck and bows
-  while held (a wind voice is tongued and blown). In LATCH a key starts its string droning (a soft key
-  swells in with the bow, a firm one plucks), and letting go fades it over its RELEASE. With
-  `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play strings 1-5 instead.
+- **Notes:** each key takes a voice and tunes it to the key played. The tuning is a bend on top of the song,
+  so the song is never changed.
+  - **Which voice:** the first key plays the voice selected on PLAY. Each key added while others are held
+    takes the next free voice round from the last one taken, so a chord builds across the voices and a run
+    of overlapping keys rotates through them. With all five held, the key held longest gives up its voice.
+    Muted voices and voices that only listen (AURA) are passed over, so muting voices narrows what the
+    keyboard plays.
+  - **How it plays:** the key plucks as hard as it is struck and bows while held (a wind voice is tongued
+    and blown). In LATCH a key starts its voice droning (a soft key swells in with the bow, a firm one
+    plucks), and letting go fades it over its RELEASE.
+  - With `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play voices 1-5 instead.
 - **Pitch bend:** two semitones. **Mod wheel** and **pressure:** how hard the held strings are bowed.
   **CC64:** sustain. **CC74:** TONE. **CC91:** reverb. **CC120 / CC123:** everything let go.
 - **Clock:** the tempo follows it, and its phase is held by trimming the playback speed, as Wi-Fi sync does.
