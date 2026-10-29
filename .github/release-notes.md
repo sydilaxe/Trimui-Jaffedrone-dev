@@ -8,6 +8,9 @@ Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Ap
 from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
 
 **Fix: the screen going black after the start-up screen**
+- The picture is now sent to the screen opaque. Its pixels went out with their alpha (transparency) at 0,
+  which TrimUI OS ignores but MustardOS's display shows, so on MustardOS nothing the app drew was visible:
+  not the start-up screen, not the pages.
 - After MustardOS's screen wake the app now makes its renderer again, and it rebuilds the picture whenever
   SDL reports it lost or drawing fails, so the pages show instead of a black screen. The log's `screen:`
   lines record the first frame, the wake, the first page, window events and every rebuild.
