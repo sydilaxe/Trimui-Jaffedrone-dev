@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Jaffedrone's list glyph for MustardOS: five strings over a bridge, one of them sounding -->
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+  <g fill="#ffffff">
+    <rect x="12" y="8" width="4" height="64" rx="2"/>
+    <rect x="24" y="8" width="4" height="64" rx="2"/>
+    <path d="M36 8 Q44 24 36 40 Q28 56 36 72 L40 72 Q32 56 40 40 Q48 24 40 8 Z"/>
+    <rect x="52" y="8" width="4" height="64" rx="2"/>
+    <rect x="64" y="8" width="4" height="64" rx="2"/>
+    <rect x="6" y="56" width="68" height="6" rx="3"/>
+  </g>
+</svg>

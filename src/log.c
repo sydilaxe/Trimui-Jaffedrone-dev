@@ -4,18 +4,25 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "engine.h"
 #include "sync.h"
 #include "ui.h"
 
 static FILE *f;
+static void system_line(void);
 static char path_[512], cfg_[512];
 static int level = LOG_BASIC;
 static uint64_t t_now, t_start, t_last_stat;
 static long written;
 static const char *const level_names[NLOGLEVEL] = {"OFF", "BASIC", "DETAIL"};
+/* the session's worst, for the END line */
+static uint32_t w_late, w_gap_us;
+static double w_load, w_peak;
+static long w_temp = -1, w_mhz_min = -1, w_mhz_max = -1;
 
 const char *jdlog_level_name(int l) { return level_names[l]; }
 int jdlog_level(void) { return f ? level : LOG_OFF; }
@@ -81,6 +88,7 @@ void jdlog_open(const char *path, const char *cfg_path)
     written = ftell(f);
     t_start = t_last_stat = t_now;
     put("START", "jaffedrone v%s, log %s", JD_VERSION, level_names[level]);
+    system_line();
     fflush(f);
 }
 
@@ -124,6 +132,14 @@ static void sys_state(char *out, int n)
 {
     long khz = read_num("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
     long temp = read_num("/sys/class/thermal/thermal_zone0/temp");
+    if (khz > 0) {
+        if (w_mhz_min < 0 || khz / 1000 < w_mhz_min)
+            w_mhz_min = khz / 1000;
+        if (khz / 1000 > w_mhz_max)
+            w_mhz_max = khz / 1000;
+    }
+    if ((temp > 1000 ? temp / 1000 : temp) > w_temp)
+        w_temp = temp > 1000 ? temp / 1000 : temp;
     char cores[16] = "?";
     FILE *p = fopen("/sys/devices/system/cpu/online", "r");
     if (p) {
@@ -135,6 +151,51 @@ static void sys_state(char *out, int n)
     if (temp > 1000)
         temp /= 1000; /* some kernels give millidegrees */
     snprintf(out, n, "cpu %ld MHz %ld C cores %s", khz > 0 ? khz / 1000 : -1, temp, cores);
+}
+
+/* the first line of a system file, or "" */
+static void read_line(const char *p, char *out, int n)
+{
+    out[0] = 0;
+    FILE *c = fopen(p, "r");
+    if (!c)
+        return;
+    if (!fgets(out, n, c))
+        out[0] = 0;
+    out[strcspn(out, "\n")] = 0;
+    fclose(c);
+}
+
+#ifdef JD_BRICKPRO
+#define BUILD_NAME "brickpro"
+#else
+#define BUILD_NAME "brick"
+#endif
+
+/* at start: the firmware, the board, this build and the processor's range,
+ * as the shared performance log in HI5 and RadioScan writes them */
+static void system_line(void)
+{
+    int muos = access("/opt/muos", F_OK) == 0;
+    char board[64], gov[32];
+    read_line("/opt/muos/device/config/board/name", board, sizeof board);
+    read_line("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", gov, sizeof gov);
+    long lo = read_num("/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq");
+    long hi = read_num("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq");
+    const char *model = getenv("TRIMUI_MODEL");
+    char clock[48] = "clock ?";
+    if (hi > 0)
+        snprintf(clock, sizeof clock, "%ld-%ld MHz", lo / 1000, hi / 1000);
+    put("SYS", "%s%s%s%s%s, build %s, %ld cores, governor %s, %s", muos ? "MustardOS" : "TrimUI OS",
+        board[0] ? ", board " : "", board, model ? ", model " : "", model ? model : "", BUILD_NAME,
+        sysconf(_SC_NPROCESSORS_ONLN), gov[0] ? gov : "?", clock);
+    /* the Brick build on a Brick Pro has no sticks: MustardOS names the board */
+    if (board[0]) {
+        int pro = strstr(board, "brick-pro") != NULL || strstr(board, "brickpro") != NULL;
+        if (pro != !strcmp(BUILD_NAME, "brickpro"))
+            put("HINT", "this is the %s build on a %s: install the %s package", BUILD_NAME,
+                pro ? "Brick Pro" : "Brick", pro ? "brickpro" : "brick");
+    }
 }
 
 /* status: audio load and lateness, levels, the leveller, voices; then hints */
@@ -149,6 +210,15 @@ static void status(AudioTiming *t, double secs)
     double ui_avg = t && t->ui_frames ? (double)t->ui_ms_sum / t->ui_frames : 0;
     char sys[64];
     sys_state(sys, sizeof sys);
+    if (t) {
+        w_late += t->late;
+        if (t->gap_max_us > w_gap_us)
+            w_gap_us = t->gap_max_us;
+    }
+    if (load > w_load)
+        w_load = load;
+    if (peak_load > w_peak)
+        w_peak = peak_load;
     put("STAT", "load avg %.0f%% peak %.0f%% late %u gap max %.0f ms calls %.1f/s of %.1f | peak %.2f rms %.3f clips %u | leveller avg %.1f "
                 "min %.1f | screen avg %.0f ms max %u ms | audio %s | %s | sync %s",
         load, peak_load, t ? t->late : 0, t ? t->gap_max_us / 1000.0 : 0, t && secs > 0 ? t->calls / secs : 0,
@@ -205,7 +275,13 @@ void jdlog_close(void)
     if (!f)
         return;
     if (level != LOG_OFF) {
-        put("END", "session %.0f s", (t_now - t_start) / 1000.0);
+        char cpu[64] = "";
+        if (w_mhz_max > 0)
+            snprintf(cpu, sizeof cpu, ", cpu %ld-%ld MHz", w_mhz_min, w_mhz_max);
+        if (w_temp >= 0)
+            snprintf(cpu + strlen(cpu), sizeof cpu - strlen(cpu), ", max %ld C", w_temp);
+        put("END", "session %.0f s: dropouts %u, audio load worst avg %.0f%% peak %.0f%%, gap max %.1f ms%s",
+            (t_now - t_start) / 1000.0, w_late, w_load, w_peak, w_gap_us / 1000.0, cpu);
         ui_summary(summary_line);
     }
     fclose(f);

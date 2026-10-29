@@ -14,7 +14,7 @@ on:
 
 jobs:
   trimui:
-    name: TrimUI packages (Brick / Brick Hammer, Brick Pro)
+    name: TrimUI packages (Brick / Brick Hammer, Brick Pro; TrimUI OS and MustardOS)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,21 +23,38 @@ jobs:
           # generated files are committed; keep make from regenerating them
           touch src/font_data.h src/logo_data.h dist/Jaffedrone/icon.png dist/Jaffedrone/splash.jdi docs/Jaffedrone-Manual.pdf
           pip install ziglang==0.14.1
+          # the scripts the device runs: the launchers, the screen wake, the system report
+          for s in dist/Jaffedrone/launch.sh dist/Jaffedrone/sysinfo.sh dist/mustardos/*.sh; do sh -n "$s"; done
           make package
           for d in brick brickpro; do
             ls -l build/Jaffedrone-$d.zip
             unzip -l build/Jaffedrone-$d.zip | grep -q "Apps/Jaffedrone/Jaffedrone-Manual.pdf"
             unzip -l build/Jaffedrone-$d.zip | grep -q "Apps/Jaffedrone/jaffedrone$"
+            unzip -l build/Jaffedrone-$d.zip | grep -q "Apps/Jaffedrone/sysinfo.sh$"
+            test "$(unzip -p build/Jaffedrone-$d.zip Apps/Jaffedrone/DEVICE)" = $d
             file build/$d/jaffedrone | grep -q "ARM aarch64"
+            # MustardOS: the same app folder in "Jaffedrone/", with mux_launch.sh, wake_screen.sh and the glyph
+            z=build/Jaffedrone-mustardos-$d.muxapp
+            ls -l $z
+            for f in jaffedrone mux_launch.sh wake_screen.sh sysinfo.sh launch.sh glyph/jaffedrone.svg Jaffedrone-Manual.pdf; do
+              unzip -l $z | grep -q "Jaffedrone/$f$" || { echo "::error::$z has no $f"; exit 1; }
+            done
+            test "$(unzip -p $z Jaffedrone/DEVICE)" = $d
+            unzip -p $z Jaffedrone/jaffedrone | cmp -s - build/$d/jaffedrone
+            # MustardOS's Archive Manager refuses absolute and .. paths, and anything not a file or folder
+            if unzip -Z1 $z | grep -Eq '^/|(^|/)\.\.(/|$)|\\'; then echo "::error::$z has unsafe paths"; exit 1; fi
+            if unzip -Zl $z | grep -Eq '^[bclps]'; then echo "::error::$z has links or devices"; exit 1; fi
           done
-          # the two builds differ only by the Brick Pro's sticks
-          ! cmp -s build/brick/jaffedrone build/brickpro/jaffedrone
+          # the two builds differ only by the Brick Pro's sticks (a bare "! cmd" can't fail a step under set -e)
+          if cmp -s build/brick/jaffedrone build/brickpro/jaffedrone; then echo "::error::the two builds are the same"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: Jaffedrone-trimui
           path: |
             build/Jaffedrone-brick.zip
             build/Jaffedrone-brickpro.zip
+            build/Jaffedrone-mustardos-brick.muxapp
+            build/Jaffedrone-mustardos-brickpro.muxapp
 
   test:
     name: Engine and UI tests (host)
@@ -123,15 +140,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: Jaffedrone-trimui
-      - name: Create GitHub release with the TrimUI packages
+      - name: Create GitHub release with the TrimUI OS and MustardOS packages
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}
         run: |
+          files="Jaffedrone-brick.zip Jaffedrone-brickpro.zip Jaffedrone-mustardos-brick.muxapp Jaffedrone-mustardos-brickpro.muxapp"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" Jaffedrone-brick.zip Jaffedrone-brickpro.zip --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$TAG" $files --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" Jaffedrone-brick.zip Jaffedrone-brickpro.zip \
+            gh release create "$TAG" $files \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Jaffedrone $TAG (test build)" \
