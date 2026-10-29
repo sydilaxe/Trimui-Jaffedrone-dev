@@ -2266,9 +2266,12 @@ int main(int argc, char **argv)
         snprintf(mk, sizeof mk, "mkdir -p '%s'", ld);
         if (system(mk) != 0)
             printf("lights: no folder\n");
-        const char *files[5][2] = {{"effect_rgb_hex_l", "00FF00"}, {"effect_rgb_hex_r", "0000FF"}, {"effect_l", "2"},
-                                   {"effect_r", "2"}, {"max_scale", "60"}};
-        for (int i = 0; i < 5; i++) {
+        /* as MustardOS leaves them: brightness 0 */
+        const char *files[8][2] = {{"effect_rgb_hex_l", "00FF00 "}, {"effect_rgb_hex_r", "0000FF "},
+                                   {"effect_l", "2"},           {"effect_r", "2"},
+                                   {"max_scale", "0"},          {"effect_enable", "0"},
+                                   {"effect_cycles_l", "3"},    {"effect_cycles_r", "3"}};
+        for (int i = 0; i < 8; i++) {
             snprintf(lp, sizeof lp, "%s/%s", ld, files[i][0]);
             FILE *f = fopen(lp, "w");
             if (f)
@@ -2276,35 +2279,31 @@ int main(int argc, char **argv)
         }
         int found = leds_open(ld);
         leds_show(stick_led_colour(0xff8018, 1.f), stick_led_colour(0x18e8a0, 0.5f));
-        char got[4][32];
-        for (int i = 0; i < 4; i++) {
-            snprintf(lp, sizeof lp, "%s/%s", ld, files[i][0]);
-            FILE *f = fopen(lp, "r");
-            got[i][0] = 0;
-            if (f) {
-                if (!fgets(got[i], sizeof got[i], f))
-                    got[i][0] = 0;
-                fclose(f);
-            }
-            got[i][strcspn(got[i], "\n")] = 0;
-        }
-        int shown_ok = !strcmp(got[0], "FF8018") && !strcmp(got[2], "4") && !strcmp(got[3], "4");
-        printf("lights: found %d, left %s right %s effect %s/%s (want FF8018 and a dimmer green, effect 4: %d)", found,
-               got[0], got[1], got[2], got[3], shown_ok);
+        char got[8][32];
+#define LED_READ(n)                                                                                                    \
+    for (int i = 0; i < (n); i++) {                                                                                    \
+        snprintf(lp, sizeof lp, "%s/%s", ld, files[i][0]);                                                             \
+        FILE *f = fopen(lp, "r");                                                                                      \
+        got[i][0] = 0;                                                                                                 \
+        if (f) {                                                                                                       \
+            if (!fgets(got[i], sizeof got[i], f))                                                                      \
+                got[i][0] = 0;                                                                                         \
+            fclose(f);                                                                                                 \
+        }                                                                                                              \
+        got[i][strcspn(got[i], " \n")] = 0;                                                                            \
+    }
+        LED_READ(8)
+        int shown_ok = !strcmp(got[0], "FF8018") && !strcmp(got[2], "4") && !strcmp(got[3], "4") &&
+                       !strcmp(got[4], "60") && !strcmp(got[5], "1") && !strcmp(got[6], "-1");
+        printf("lights: found %d, left %s right %s effect %s/%s brightness %s enable %s cycles %s (want FF8018 and a "
+               "dimmer green, effect 4, brightness 60, enable 1, cycles -1: %d)",
+               found, got[0], got[1], got[2], got[3], got[4], got[5], got[6], shown_ok);
         leds_close();
-        for (int i = 0; i < 2; i++) {
-            snprintf(lp, sizeof lp, "%s/%s", ld, files[i][0]);
-            FILE *f = fopen(lp, "r");
-            got[i][0] = 0;
-            if (f) {
-                if (!fgets(got[i], sizeof got[i], f))
-                    got[i][0] = 0;
-                fclose(f);
-            }
-            got[i][strcspn(got[i], "\n")] = 0;
-        }
-        printf("; given back %s %s (want 00FF00 0000FF: %d)\n", got[0], got[1],
-               !strcmp(got[0], "00FF00") && !strcmp(got[1], "0000FF"));
+        LED_READ(8)
+#undef LED_READ
+        printf("; given back %s %s brightness %s cycles %s (want 00FF00 0000FF 0 3: %d)\n", got[0], got[1], got[4],
+               got[6], !strcmp(got[0], "00FF00") && !strcmp(got[1], "0000FF") && !strcmp(got[4], "0") &&
+                   !strcmp(got[6], "3"));
     }
 
     /* DSP benchmark: 30 s of the default drone */

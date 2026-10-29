@@ -165,7 +165,11 @@ static int open_output(const char *name, int start)
     }
     snprintf(dev_name, sizeof dev_name, "%s", name ? name : "");
     clock0_us = made_us = 0;
-    jdlog("audio out: %s, %d Hz, %d frames a buffer", name ? name : "speaker / headphones", rate, bufsz);
+    /* which way the sound goes (on MustardOS: pipewire, or alsa through
+     * PipeWire's ALSA plugin), and what the device took */
+    jdlog("audio out: %s, %d Hz, %d frames a buffer (SDL %s driver: %d Hz, %d channels, format 0x%x, %d frames)",
+          name ? name : "speaker / headphones", rate, bufsz, SDL_GetCurrentAudioDriver(), have.freq,
+          (int)have.channels, (unsigned)have.format, (int)have.samples);
     if (start)
         SDL_PauseAudioDevice(dev, 0);
     return 1;
@@ -776,6 +780,20 @@ int main(int argc, char **argv)
         return 1;
     }
     SDL_ShowCursor(SDL_DISABLE);
+    {
+        /* the system's SDL and its sound: for a device that plays silence */
+        SDL_version v;
+        SDL_GetVersion(&v);
+        char outs[400] = "";
+        int n = SDL_GetNumAudioDevices(0);
+        for (int i = 0; i < n && i < 8; i++) {
+            const char *dn = SDL_GetAudioDeviceName(i, 0);
+            size_t l = strlen(outs);
+            snprintf(outs + l, sizeof outs - l, "%s%s", i ? "; " : "", dn ? dn : "?");
+        }
+        jdlog("sound: SDL %d.%d.%d, driver %s, %d outputs: %s", v.major, v.minor, v.patch,
+              SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "none", n, n > 0 ? outs : "-");
+    }
     SDL_DisplayMode dm;
     int sw = 1024, sh = 768;
     if (SDL_GetCurrentDisplayMode(0, &dm) == 0 && dm.w > 0 && dm.h > 0)

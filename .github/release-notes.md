@@ -26,7 +26,9 @@ from **Applications → Archive Manager**, then open **Applications → Jaffedro
   row to put it on the stick; the choice is kept.
 - **Lights:** the lights around the sticks glow as they are pushed, brighter the further they go (amber
   bowing, rose bending, green harmonics, gold the mapped control), and go back to how they were on leaving.
-  `JD_LEDS=0` in `launch.sh` leaves them alone.
+  On MustardOS, which starts with the lights turned down to nothing, they are turned up while Jaffedrone
+  runs (`JD_LED_BRIGHTNESS`, 1 .. 60) and turned down again on leaving. `JD_LEDS=0` in `launch.sh` leaves
+  them alone.
 
 **New: MustardOS, and logs for tuning**
 - Packages for MustardOS on the Brick, Brick Hammer and Brick Pro. The app reads MustardOS's controller, so
