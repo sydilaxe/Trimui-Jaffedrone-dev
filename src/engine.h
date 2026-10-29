@@ -215,6 +215,11 @@ void engine_bow_pressure(int s, float p);
 void engine_express_bend(int s, float semitones);
 void engine_express_tone(float octaves);
 void engine_express_space(float amt);
+/* a voice's sound control (NOTE .. BUZZ, HARM) played live: on, voice s
+ * plays value in place of the song's control p; off, the song's again.
+ * engine_param_played is what the voice plays now. */
+void engine_express_param(int s, int p, int on, int value);
+int engine_param_played(int s, int p);
 /* LATCH: a pluck or bow (LATCH_PLUCK, LATCH_BOW) starts string s droning;
  * played again, it fades over its RELEASE. Returns the new state. */
 int engine_latch(int s, int how);

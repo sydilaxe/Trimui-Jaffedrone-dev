@@ -32,6 +32,7 @@
 #include "gfx.h"
 #include "log.h"
 #include "midi.h"
+#include "sticks.h"
 #include "sync.h"
 #include "ui.h"
 
@@ -355,32 +356,53 @@ static void on_trigger(int which, int value)
 
 #ifdef JD_BRICKPRO
 /* The Brick Pro's sticks: live expression, springing back when let go.
- *   left stick   up: bow the selected string by hand, harder the further
- *                it goes (a wind: blow); left / right: bend it, up to two
- *                semitones (JD_BEND sets the range)
- *   right stick  left / right: TONE darker / brighter, two octaves either
- *                way; up / down: more / less reverb
- *   L3           pluck the selected string;  R3  the next chord
- * Axes: pad_axes above. */
-static float stick[AX_RY + 1]; /* by AX_LX .. AX_RY: -1 .. 1, centre dead zone removed */
+ *   left stick   up: bow the selected string by hand, from a light touch to
+ *                the engine's hardest (a wind: blow); left / right: bend
+ *                it, up to two semitones (JD_BEND sets the range)
+ *   right stick  up / down: HARM, the harmonic touched (a wind: its
+ *                register; struck: the mode the bow sings), up to the
+ *                highest / down to none; left / right: the SOUND control
+ *                mapped to it (BRIGHT at first; R3 on a SOUND row maps
+ *                that row), down to its least / up to its most
+ *   L3           pluck the selected string;  R3  the next chord (on
+ *                SOUND: map the row under the cursor to the right stick)
+ * Each stick's light shows how far its controls are pushed.
+ * Axes: pad_axes above; sticks.c reads them (reach, dead zone). */
+#define STICK_CFG "jaffedrone_stick.cfg"
 static int stick_bowing = -1, stick_bent = -1;
+static int rs_s = -1, rs_p = -1, rs_harm = -1000, rs_val = -1000; /* what the right stick plays now */
 static float bend_range = 2.f;
+static float stk[STK_AXES];
+static int leds;
 
-static float deadzone(int v)
+static int stick_of(int role)
 {
-    float x = v / 32767.f, dz = 0.12f;
-    if (x > -dz && x < dz)
-        return 0.f;
-    x = x > 0.f ? (x - dz) / (1.f - dz) : (x + dz) / (1.f - dz);
-    return x > 1.f ? 1.f : x < -1.f ? -1.f : x;
+    switch (role) {
+    case AX_LX: return STK_LX;
+    case AX_LY: return STK_LY;
+    case AX_RX: return STK_RX;
+    case AX_RY: return STK_RY;
+    }
+    return -1;
+}
+
+/* the right stick lets go of what it plays */
+static void right_release(void)
+{
+    if (rs_s >= 0 && rs_p >= 0)
+        engine_express_param(rs_s, rs_p, 0, 0);
+    if (rs_s >= 0)
+        engine_express_param(rs_s, SP_HARM, 0, 0);
+    rs_s = rs_p = -1;
+    rs_harm = rs_val = -1000;
 }
 
 static void sticks_apply(void)
 {
+    sticks_read(stk);
     int s = ui_selected_string();
-    float up = -stick[AX_LY];
+    float up = -stk[STK_LY];
     ui_lock();
-    /* bowing: from a light touch (past the dead zone) to as hard as R1 and a little over */
     if (up > 0.f) {
         if (stick_bowing != s) {
             if (stick_bowing >= 0)
@@ -390,22 +412,92 @@ static void sticks_apply(void)
             if (jdlog_level() == LOG_DETAIL)
                 jdlog("input: left stick bows string %d", s + 1);
         }
-        engine_bow_pressure(s, 0.15f + 1.05f * up * up);
+        engine_bow_pressure(s, stick_bow_pressure(up));
     }
     else if (stick_bowing >= 0) {
         engine_bow(stick_bowing, 0);
         engine_bow_pressure(stick_bowing, 1.f);
         stick_bowing = -1;
         if (jdlog_level() == LOG_DETAIL)
-            jdlog("input: left stick let go");
+            jdlog("input: left stick let go (reach up %.2f)", sticks_reach(STK_LY, 0));
     }
     if (stick_bent >= 0 && stick_bent != s)
         engine_express_bend(stick_bent, 0.f);
-    engine_express_bend(s, stick[AX_LX] * bend_range);
+    engine_express_bend(s, stk[STK_LX] * bend_range);
     stick_bent = s;
-    engine_express_tone(stick[AX_RX] * 2.f);
-    engine_express_space(-stick[AX_RY]);
+
+    /* the right stick: HARM up / down, the mapped control left / right */
+    int p = ui_stick_param();
+    if (rs_s != s || rs_p != p) {
+        right_release();
+        rs_s = s, rs_p = p;
+    }
+    const ParamDef *dh = sparam_def(SP_HARM), *dp = sparam_def(p);
+    if (stk[STK_RY] != 0.f)
+        engine_express_param(s, SP_HARM, 1,
+                             stick_control(&rs_harm, song.sp[s][SP_HARM], dh->min, dh->max, -stk[STK_RY]));
+    else if (rs_harm != -1000) {
+        engine_express_param(s, SP_HARM, 0, 0);
+        rs_harm = -1000;
+    }
+    if (stk[STK_RX] != 0.f)
+        engine_express_param(s, p, 1, stick_control(&rs_val, song.sp[s][p], dp->min, dp->max, stk[STK_RX]));
+    else if (rs_val != -1000) {
+        engine_express_param(s, p, 0, 0);
+        rs_val = -1000;
+    }
     ui_unlock();
+}
+
+/* the lights: the left stick's amber as it bows, rose as it bends; the
+ * right's green for the harmonics, gold for the mapped control; each as
+ * bright as its stick is pushed */
+static uint32_t mix_rgb(uint32_t a, uint32_t b, float t)
+{
+    uint32_t o = 0;
+    for (int sh = 0; sh <= 16; sh += 8) {
+        float x = ((a >> sh) & 255) + (((float)((b >> sh) & 255)) - ((a >> sh) & 255)) * t;
+        o |= (uint32_t)lrintf(x) << sh;
+    }
+    return o;
+}
+static void leds_update(void)
+{
+    if (!leds)
+        return;
+    float bow = -stk[STK_LY] > 0.f ? -stk[STK_LY] : 0.f, bend = fabsf(stk[STK_LX]);
+    float harm = fabsf(stk[STK_RY]), ctl = fabsf(stk[STK_RX]);
+    float li = fmaxf(bow, bend), ri = fmaxf(harm, ctl);
+    uint32_t lc = mix_rgb(0xff8018, 0xff2a60, bow + bend > 0.f ? bend / (bow + bend) : 0.f);
+    uint32_t rc = mix_rgb(0x18e8a0, 0xffb020, harm + ctl > 0.f ? ctl / (harm + ctl) : 0.f);
+    /* 32 steps of brightness: smooth to the eye, few writes */
+    leds_show(stick_led_colour(lc, floorf(li * 32.f + 0.5f) / 32.f), stick_led_colour(rc, floorf(ri * 32.f + 0.5f) / 32.f));
+}
+
+static void stick_cfg_load(void)
+{
+    FILE *f = fopen(STICK_CFG, "r");
+    int p;
+    if (f) {
+        if (fscanf(f, "right=%d", &p) == 1)
+            ui_set_stick_param(p);
+        fclose(f);
+    }
+}
+static void stick_cfg_save(void)
+{
+    static int saved = -1;
+    int p = ui_stick_param();
+    if (p == saved)
+        return;
+    if (saved >= 0) {
+        FILE *f = fopen(STICK_CFG, "w");
+        if (f) {
+            fprintf(f, "right=%d\n", p);
+            fclose(f);
+        }
+    }
+    saved = p;
 }
 #endif
 
@@ -464,7 +556,7 @@ static void on_event(const SDL_Event *e)
             }
         }
         else if (m == JB_R3) {
-            if (down)
+            if (down && !ui_stick_map())
                 ui_button(BTN_SELECT, 1), ui_button(BTN_SELECT, 0);
         }
 #endif
@@ -485,7 +577,7 @@ static void on_event(const SDL_Event *e)
             on_trigger(role == AX_R2, e->jaxis.value);
 #ifdef JD_BRICKPRO
         else if (role != AX_NONE) {
-            stick[role] = deadzone(e->jaxis.value);
+            sticks_axis(stick_of(role), e->jaxis.value);
             sticks_apply();
         }
 #endif
@@ -620,6 +712,13 @@ int main(int argc, char **argv)
     open_joysticks();
 #ifdef JD_BRICKPRO
     bend_range = (float)env_int("JD_BEND", 2);
+    /* JD_STICK_REACH: how far (percent) a stick is first taken to go, until it
+     * shows it goes further */
+    sticks_reset(env_int("JD_STICK_REACH", 60) / 100.f);
+    stick_cfg_load();
+    ui_set_sticks(1);
+    if (env_int("JD_LEDS", 1))
+        leds = leds_open(getenv("JD_LED_DIR"));
 #endif
 
     engine_init(rate);
@@ -701,6 +800,10 @@ int main(int argc, char **argv)
         }
         jdlog_tick(now_us() / 1000, &timing);
 
+#ifdef JD_BRICKPRO
+        leds_update();
+        stick_cfg_save();
+#endif
         ui_draw(fb);
         SDL_UpdateTexture(tex, NULL, fb, SCREEN_W * 4);
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
@@ -727,6 +830,9 @@ int main(int argc, char **argv)
     }
 
     song_save(SAVE_PATH);
+#ifdef JD_BRICKPRO
+    leds_close();
+#endif
     jdlog_set_clock(now_us() / 1000);
     midi_stop();
     jdlog_close();

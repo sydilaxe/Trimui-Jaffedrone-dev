@@ -24,6 +24,13 @@ void ui_draw(uint32_t *fb);
 int ui_quit_requested(void);
 int ui_take_changed(void);
 int ui_selected_string(void);      /* the string hand playing plays (the sticks, too) */
-void ui_notice(const char *msg);   /* a message on screen and in the log (main thread only) */
+void ui_notice(const char *msg);
+/* the Brick Pro's right stick: left / right plays a SOUND control of the
+ * selected string (BRIGHT at first); ui_stick_map, on R3, maps the SOUND row
+ * under the cursor and returns 1, or returns 0 off SOUND (R3: next chord) */
+void ui_set_sticks(int on);        /* mark the stick's rows on SOUND */
+int ui_stick_param(void);
+void ui_set_stick_param(int p);
+int ui_stick_map(void);   /* a message on screen and in the log (main thread only) */
 /* the session in a few lines (presses, pages, adjustments), for the log */
 void ui_summary(void (*out)(const char *line));

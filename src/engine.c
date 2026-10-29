@@ -436,7 +436,7 @@ static float atk_secs(int x) { return 0.05f * powf(200.f, x / 100.f); }
 float engine_perc_ring(int voice, int d);
 void sparam_format(int s, int p, char *b, int n)
 {
-    int x = song.sp[s][p];
+    int x = engine_param_played(s, p); /* the song's, or the right stick's while it moves it */
     if (p == SP_DECAY && engine_voice_perc(s)) { /* RING, in seconds; at the top a drone */
         float t = engine_perc_ring(song.sp[s][SP_VOICE], x);
         if (x >= 100)
@@ -966,6 +966,34 @@ void engine_express_bend(int s, float semitones)
 }
 void engine_express_tone(float octaves) { ex_tone = octaves < -4.f ? -4.f : octaves > 4.f ? 4.f : octaves; }
 void engine_express_space(float amt) { ex_space = amt < -1.f ? -1.f : amt > 1.f ? 1.f : amt; }
+
+/* a voice's sound control played live (the right stick): the voices use
+ * this value in place of the song's while it is on; the song is untouched */
+static volatile signed char ex_on[NS][NSP];
+static volatile int ex_val[NS][NSP];
+void engine_express_param(int s, int p, int on, int value)
+{
+    if (s < 0 || s >= NS || p < 0 || p >= NSP)
+        return;
+    const ParamDef *d = &sparams[p];
+    ex_val[s][p] = value < d->min ? d->min : value > d->max ? d->max : value;
+    ex_on[s][p] = (signed char)(on != 0);
+}
+int engine_param_played(int s, int p)
+{
+    if (s < 0 || s >= NS || p < 0 || p >= NSP)
+        return 0;
+    return ex_on[s][p] ? ex_val[s][p] : song.sp[s][p];
+}
+/* the song's voice controls with what is played live on top, for one block */
+static void played_params(int out[NS][NSP])
+{
+    memcpy(out, song.sp, sizeof song.sp);
+    for (int s = 0; s < NS; s++)
+        for (int p = 0; p < NSP; p++)
+            if (ex_on[s][p])
+                out[s][p] = ex_val[s][p];
+}
 
 void engine_set_playing(int on) { live.playing = on; }
 
@@ -2523,8 +2551,10 @@ void engine_voices(EngineBlock *b, int frames)
     static PercVoice pv[NS]; /* kept: the modes are worked out again only on a change */
     int pv_on[NS];
     float harm_n[NS], gate_d[NS];
+    static int ep[NS][NSP]; /* the voices' controls as played: the song, and the right stick on top */
+    played_params(ep);
     for (int s = 0; s < NS; s++) {
-        harm_n[s] = song.sp[s][SP_HARM] ? (float)(song.sp[s][SP_HARM] + 1) : 0.f;
+        harm_n[s] = ep[s][SP_HARM] ? (float)(ep[s][SP_HARM] + 1) : 0.f;
         if (str[s].over) /* touched by hand: the next harmonic up */
             harm_n[s] = harm_n[s] > 0.f ? fminf(harm_n[s] + 1.f, 6.f) : 2.f;
         gate_d[s] = latch_mode ? 1.f : song.sp[s][SP_GATE] / 100.f; /* LATCH: the sound follows the latch */
@@ -2537,7 +2567,7 @@ void engine_voices(EngineBlock *b, int frames)
     if (nsy)
         symp_tune(sc, nsy);
     for (int s = 0; s < NS; s++) {
-        const int *P = song.sp[s];
+        const int *P = ep[s];
         String *st = &str[s];
         st->drift_t -= frames;
         if (st->drift_t <= 0.f) {
@@ -2546,7 +2576,7 @@ void engine_voices(EngineBlock *b, int frames)
         }
         st->drift += (st->drift_target - st->drift) * 0.002f * frames / 64.f;
         float cents = P[SP_FINE] + st->drift * 25.f * drift_amt;
-        int note = mono ? song.sp[0][SP_NOTE] : P[SP_NOTE];
+        int note = mono ? ep[0][SP_NOTE] : P[SP_NOTE];
         base_midi[s] = song.gp[GP_ROOT] + (deg_cents(sc, note) + cents) / 100.f;
         lp_k[s] = 0.08f + 0.9f * powf(P[SP_BRIGHT] / 100.f, 1.5f);
         float d = P[SP_DECAY] / 100.f;
@@ -2630,7 +2660,7 @@ void engine_voices(EngineBlock *b, int frames)
             wv_on[s] = vkind(st->voice_was) == 1; /* the voice sounding now, until a change has faded */
             pv_on[s] = vkind(st->voice_was) == 2;
             if (pv_on[s]) {
-                const int *P = song.sp[s];
+                const int *P = ep[s];
                 float h = latch_mode ? fmaxf(st->hand_env, st->bow_env) : st->hand_env;
                 float bow = P[SP_BOW] / 100.f * fmaxf(st->bow_env, h) * m_bow + 0.4f * h; /* the hand presses harder */
                 st->bow_env += ((float)st->bow_open - st->bow_env) * fminf(1.f, bow_k[s] * nn);
@@ -2642,7 +2672,7 @@ void engine_voices(EngineBlock *b, int frames)
                 continue;
             }
             if (wv_on[s]) {
-                wind_setup(&wv[s], st, song.sp[s], hz, sps16, hand_rel);
+                wind_setup(&wv[s], st, ep[s], hz, sps16, hand_rel);
                 if (st->over_kick > 0)
                     st->over_kick -= nn;
                 wv[s].base *= m_bow;

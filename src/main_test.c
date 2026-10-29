@@ -11,6 +11,7 @@
 #include "aclock.h"
 #include "ahead.h"
 #include "midi.h"
+#include "sticks.h"
 #include "engine.h"
 #include "gfx.h"
 #include "log.h"
@@ -18,6 +19,7 @@
 #include "ui.h"
 
 #define RATE 48000
+static const char *out_dir = "."; /* where the results go (out is shadowed in places) */
 
 static void put32(FILE *f, uint32_t v) { fwrite(&v, 4, 1, f); }
 static void put16(FILE *f, uint16_t v) { fwrite(&v, 2, 1, f); }
@@ -325,6 +327,7 @@ static void sim_sync(int echo, double *mean_ms, double *worst_ms, float *delay)
 int main(int argc, char **argv)
 {
     const char *out = argc > 1 ? argv[1] : ".";
+    out_dir = out;
     char path[512];
     static uint32_t fb[SCREEN_W * SCREEN_H];
     ui_set_dir(out);
@@ -362,6 +365,35 @@ int main(int argc, char **argv)
             shot(out, "play_bow", fb);
             ui_button(BTN_R1, 0);
         }
+    }
+    /* the Brick Pro's right stick on SOUND: R3 maps FOLD of string 2, and
+     * the stick plays it and HARM (the marks light while it moves them) */
+    {
+        ui_set_sticks(1);
+        next_page(); /* SOUND */
+        press(BTN_RIGHT);
+        for (int i = 0; i < 6; i++)
+            press(BTN_DOWN); /* VOICE, NOTE, HARM, BOW, DECAY, BRIGHT, FOLD */
+        int mapped = ui_stick_map() && ui_stick_param() == SP_FOLD;
+        ui_lock();
+        engine_express_param(1, SP_FOLD, 1, 80);
+        engine_express_param(1, SP_HARM, 1, 2);
+        ui_unlock();
+        engine_render(pcm, RATE / 2);
+        ui_tick(10);
+        char v[24];
+        sparam_format(1, SP_FOLD, v, sizeof v);
+        shot(out, "sound_stick", fb);
+        printf("R3 on SOUND maps FOLD %d; the row shows the stick's %s (want 80: %d)\n", mapped, v, !strcmp(v, "80"));
+        engine_express_param(1, SP_FOLD, 0, 0);
+        engine_express_param(1, SP_HARM, 0, 0);
+        for (int i = 0; i < 6; i++)
+            press(BTN_UP);
+        press(BTN_LEFT);
+        for (int i = 1; i < PAGE_COUNT; i++)
+            next_page(); /* back to PLAY */
+        ui_set_stick_param(SP_BRIGHT);
+        ui_set_sticks(0);
     }
     /* controls on PLAY, as on HI5 and RadioScan: A on/off, B fewer pulses
      * (wrapping), X rotate, Y new pattern; START + R1 pages without stopping
@@ -2117,6 +2149,117 @@ int main(int argc, char **argv)
         engine_express_bend(0, 0.f);
         printf("stick: bow light %.3f, hard %.3f (lighter is softer: %d); bend +2 x%.3f (want 1.122: %d)\n", lvl[0],
                lvl[1], lvl[0] < lvl[1] * 0.8, f_bent / f_flat, fabs(f_bent / f_flat - 1.1225) < 0.006);
+
+        /* the sticks' reach: a stick that goes only 70% of the way still bows
+         * at full once it has been there; a round gate's diagonal reaches
+         * both ends; the bow covers the engine's whole range */
+        float sv[STK_AXES];
+        sticks_reset(0.6f);
+        sticks_axis(STK_LY, -22937); /* 70% up */
+        sticks_read(sv);
+        float up70 = -sv[STK_LY];
+        sticks_axis(STK_LY, 0);
+        sticks_axis(STK_RX, 23170), sticks_axis(STK_RY, -23170); /* up and right on a round gate: 0.707 each */
+        sticks_axis(STK_RX, 32767), sticks_axis(STK_RX, 23170); /* (the stick has been all the way across) */
+        sticks_axis(STK_RY, -32767), sticks_axis(STK_RY, -23170);
+        sticks_read(sv);
+        float diag_x = sv[STK_RX], diag_y = -sv[STK_RY];
+        sticks_axis(STK_RX, 300), sticks_axis(STK_RY, -300); /* resting near the centre */
+        sticks_read(sv);
+        int rest = sv[STK_RX] == 0.f && sv[STK_RY] == 0.f;
+        float bp0 = stick_bow_pressure(0.f), bp_light = stick_bow_pressure(0.05f), bp_full = stick_bow_pressure(1.f);
+        printf("stick reach: 70%% stick up -> %.2f (want 1: %d); diagonal -> %.2f %.2f (want both 1: %d); rest 0: %d; "
+               "bow %.2f .. %.2f .. %.2f (want 0, light, 1.5: %d)\n",
+               up70, up70 > 0.99f, diag_x, diag_y, diag_x > 0.99f && diag_y > 0.99f, rest, bp0, bp_light, bp_full,
+               bp0 == 0.f && bp_light > 0.f && bp_light < 0.2f && fabsf(bp_full - 1.5f) < 1e-4f);
+
+        /* the right stick: HARM from OFF up to the 5th and back, with no
+         * flicker between two steps; the mapped control's whole range */
+        int held = -1000, h_half, h_full, flips = 0, last;
+        h_half = stick_control(&held, 0, 0, 4, 0.5f);
+        last = h_half;
+        for (int i = 0; i < 200; i++) { /* a hand trembling at a step's edge */
+            int v = stick_control(&held, 0, 0, 4, 0.625f + 0.05f * sinf(i * 0.7f));
+            flips += v != last, last = v;
+        }
+        h_full = stick_control(&held, 0, 0, 4, 1.f);
+        int vheld = -1000;
+        int lo = stick_control(&vheld, 40, 0, 100, -1.f), mid = stick_control(&vheld, 40, 0, 100, 0.5f),
+            hi = stick_control(&vheld, 40, 0, 100, 1.f);
+        printf("right stick: HARM OFF -> half %d, full %d (want 2, 4: %d), flicker %d (want under 2: %d); "
+               "BRIGHT 40 -> %d %d %d (want 0 70 100: %d)\n",
+               h_half, h_full, h_half == 2 && h_full == 4, flips, flips < 2, lo, mid, hi, lo == 0 && mid == 70 && hi == 100);
+
+        /* a control played from the stick sounds as the song's would, and
+         * leaves the song as it was */
+        double e[2][2];
+        for (int k = 0; k < 2; k++) {
+            song_default();
+            song.gp[GP_CHANGES] = 0, song.gp[GP_DRIFT] = 0, song.lfo[0][LP_DEPTH] = 0;
+            for (int s = 0; s < NS; s++)
+                song.on[s] = s == 0, song.sp[s][SP_PON] = 0;
+            if (k == 0)
+                song.sp[0][SP_HARM] = 2, song.sp[0][SP_FOLD] = 60;
+            engine_init(RATE);
+            engine_set_playing(1);
+            if (k == 1)
+                engine_express_param(0, SP_HARM, 1, 2), engine_express_param(0, SP_FOLD, 1, 60);
+            engine_render(pcm, RATE);
+            e[k][0] = 0, e[k][1] = live.meter[0];
+            for (int i = 0; i < RATE * 2; i++)
+                e[k][0] += (double)pcm[i] * pcm[i];
+            engine_express_param(0, SP_HARM, 0, 0), engine_express_param(0, SP_FOLD, 0, 0);
+        }
+        int song_kept = song.sp[0][SP_HARM] == 0 && song.sp[0][SP_FOLD] == 0;
+        printf("stick control: HARM 3RD and FOLD 60 played live as from the song %d (energy %.4g / %.4g), song kept %d\n",
+               fabs(e[0][0] - e[1][0]) <= 1e-9 * e[0][0], e[0][0], e[1][0], song_kept);
+
+        /* the lights: written as colours and given back at the end */
+        char ld[600], lp[700];
+        snprintf(ld, sizeof ld, "%s/led_anim", out_dir);
+        char mk[700];
+        snprintf(mk, sizeof mk, "mkdir -p '%s'", ld);
+        if (system(mk) != 0)
+            printf("lights: no folder\n");
+        const char *files[5][2] = {{"effect_rgb_hex_l", "00FF00"}, {"effect_rgb_hex_r", "0000FF"}, {"effect_l", "2"},
+                                   {"effect_r", "2"}, {"max_scale", "60"}};
+        for (int i = 0; i < 5; i++) {
+            snprintf(lp, sizeof lp, "%s/%s", ld, files[i][0]);
+            FILE *f = fopen(lp, "w");
+            if (f)
+                fprintf(f, "%s\n", files[i][1]), fclose(f);
+        }
+        int found = leds_open(ld);
+        leds_show(stick_led_colour(0xff8018, 1.f), stick_led_colour(0x18e8a0, 0.5f));
+        char got[4][32];
+        for (int i = 0; i < 4; i++) {
+            snprintf(lp, sizeof lp, "%s/%s", ld, files[i][0]);
+            FILE *f = fopen(lp, "r");
+            got[i][0] = 0;
+            if (f) {
+                if (!fgets(got[i], sizeof got[i], f))
+                    got[i][0] = 0;
+                fclose(f);
+            }
+            got[i][strcspn(got[i], "\n")] = 0;
+        }
+        int shown_ok = !strcmp(got[0], "FF8018") && !strcmp(got[2], "4") && !strcmp(got[3], "4");
+        printf("lights: found %d, left %s right %s effect %s/%s (want FF8018 and a dimmer green, effect 4: %d)", found,
+               got[0], got[1], got[2], got[3], shown_ok);
+        leds_close();
+        for (int i = 0; i < 2; i++) {
+            snprintf(lp, sizeof lp, "%s/%s", ld, files[i][0]);
+            FILE *f = fopen(lp, "r");
+            got[i][0] = 0;
+            if (f) {
+                if (!fgets(got[i], sizeof got[i], f))
+                    got[i][0] = 0;
+                fclose(f);
+            }
+            got[i][strcspn(got[i], "\n")] = 0;
+        }
+        printf("; given back %s %s (want 00FF00 0000FF: %d)\n", got[0], got[1],
+               !strcmp(got[0], "00FF00") && !strcmp(got[1], "0000FF"));
     }
 
     /* DSP benchmark: 30 s of the default drone */
