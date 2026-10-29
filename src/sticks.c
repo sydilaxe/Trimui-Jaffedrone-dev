@@ -103,14 +103,23 @@ uint32_t stick_led_colour(uint32_t rgb, float intensity)
 }
 
 /* ------------------------------------------------------------- lights
- * TrimUI's lights driver (led_anim, as TrimUI OS and NextUI drive it): for
- * each light, effect_rgb_hex_<name> takes a colour as six hex digits and
- * effect_<name> an effect (4: a steady colour). The sticks' lights are "l"
- * and "r". JD_LED_EFFECT changes the effect number for another firmware. */
+ * TrimUI's lights driver (led_anim, as TrimUI OS, NextUI and MustardOS drive
+ * it): for each light, effect_rgb_hex_<name> takes a colour as six hex digits
+ * and a space, effect_cycles_<name> how often to run the effect (-1: always),
+ * effect_<name> the effect (4: a steady colour), and effect_enable 1 starts
+ * them. max_scale is the brightness of them all, 0 .. 60. The sticks' lights
+ * are "l" and "r". JD_LED_EFFECT changes the effect number for another
+ * firmware.
+ *
+ * MustardOS sets max_scale to 0 when it starts, so the lights are dark until
+ * something turns them up: while Jaffedrone runs, a brightness of 0 becomes
+ * 60 (JD_LED_BRIGHTNESS sets another, 1 .. 60, whatever the system has), and
+ * it is put back at the end. */
 static char led_dir[256];
 static int leds_on, led_effect = 4;
 static const char *const led_names[2] = {"l", "r"};
-static char kept_rgb[2][32], kept_effect[2][32];
+static char kept_rgb[2][32], kept_effect[2][32], kept_cycles[2][32], kept_scale[32], kept_enable[32];
+static int set_scale; /* the brightness written, or 0 if left alone */
 static uint32_t shown[2];
 static int shown_any;
 
@@ -140,13 +149,18 @@ static void get(const char *path, char *b, int n)
     b[strcspn(b, "\r\n")] = 0;
 }
 
+static void led_file(char *b, int n, const char *what)
+{
+    snprintf(b, n, "%s/%s", led_dir, what);
+}
+
 int leds_open(const char *dir)
 {
     snprintf(led_dir, sizeof led_dir, "%s", dir && *dir ? dir : "/sys/class/led_anim");
     const char *e = getenv("JD_LED_EFFECT");
     if (e && *e)
         led_effect = atoi(e);
-    leds_on = shown_any = 0;
+    leds_on = shown_any = set_scale = 0;
     for (int k = 0; k < 2; k++) {
         char p[300];
         led_path(p, sizeof p, "effect_rgb_hex", k);
@@ -157,16 +171,38 @@ int leds_open(const char *dir)
         get(p, kept_rgb[k], sizeof kept_rgb[k]);
         led_path(p, sizeof p, "effect", k);
         get(p, kept_effect[k], sizeof kept_effect[k]);
+        led_path(p, sizeof p, "effect_cycles", k);
+        get(p, kept_cycles[k], sizeof kept_cycles[k]);
+        if (access(p, W_OK) == 0)
+            put(p, "-1\n");
     }
-    char ms[300], scale[32];
-    snprintf(ms, sizeof ms, "%s/max_scale", led_dir);
-    get(ms, scale, sizeof scale);
-    jdlog("lights: the sticks' lights follow the sticks (%s; they showed %s / %s, effect %s / %s; brightness %s)",
+    char p[300];
+    led_file(p, sizeof p, "effect_enable");
+    get(p, kept_enable, sizeof kept_enable);
+    led_file(p, sizeof p, "max_scale");
+    get(p, kept_scale, sizeof kept_scale);
+    int scale = kept_scale[0] ? atoi(kept_scale) : -1, want = 0;
+    const char *b = getenv("JD_LED_BRIGHTNESS");
+    if (b && *b)
+        want = atoi(b);
+    else if (scale == 0)
+        want = 60;
+    want = want < 0 ? 0 : want > 60 ? 60 : want;
+    if (want > 0 && want != scale && access(p, W_OK) == 0) {
+        char v[16];
+        snprintf(v, sizeof v, "%d\n", want);
+        if (put(p, v))
+            set_scale = want;
+    }
+    jdlog("lights: the sticks' lights follow the sticks (%s; they showed %s / %s, effect %s / %s; brightness %s%s)",
           led_dir, kept_rgb[0][0] ? kept_rgb[0] : "?", kept_rgb[1][0] ? kept_rgb[1] : "?",
           kept_effect[0][0] ? kept_effect[0] : "?", kept_effect[1][0] ? kept_effect[1] : "?",
-          scale[0] ? scale : "?");
-    if (scale[0] == '0' && scale[1] == 0)
-        jdlog("HINT lights: their brightness is 0 (the lights are off in the system settings), so they stay dark");
+          kept_scale[0] ? kept_scale : "?", set_scale ? ", turned up while playing" : "");
+    if (scale == 0 && !set_scale)
+        jdlog("HINT lights: their brightness is 0 and could not be turned up, so they stay dark");
+    else if (set_scale)
+        jdlog("lights: brightness %d while playing (JD_LED_BRIGHTNESS), %s again at the end", set_scale,
+              kept_scale[0] ? kept_scale : "?");
     leds_on = 1;
     return 1;
 }
@@ -175,10 +211,18 @@ static void led_set(int k, uint32_t rgb, const char *effect)
 {
     char p[300], v[32];
     led_path(p, sizeof p, "effect_rgb_hex", k);
-    snprintf(v, sizeof v, "%06X\n", (unsigned)(rgb & 0xffffff));
+    snprintf(v, sizeof v, "%06X \n", (unsigned)(rgb & 0xffffff));
     put(p, v);
     led_path(p, sizeof p, "effect", k);
     put(p, effect);
+}
+
+static void led_enable(const char *v)
+{
+    char p[300];
+    led_file(p, sizeof p, "effect_enable");
+    if (access(p, W_OK) == 0)
+        put(p, v);
 }
 
 void leds_show(uint32_t left, uint32_t right)
@@ -188,11 +232,15 @@ void leds_show(uint32_t left, uint32_t right)
     uint32_t c[2] = {left, right};
     char eff[16];
     snprintf(eff, sizeof eff, "%d\n", led_effect);
+    int changed = 0;
     for (int k = 0; k < 2; k++)
         if (!shown_any || c[k] != shown[k]) {
             led_set(k, c[k], eff);
             shown[k] = c[k];
+            changed = 1;
         }
+    if (changed)
+        led_enable("1\n");
     shown_any = 1;
 }
 
@@ -204,7 +252,21 @@ void leds_close(void)
         char eff[80];
         snprintf(eff, sizeof eff, "%s\n", kept_effect[k][0] ? kept_effect[k] : "0");
         led_set(k, kept_rgb[k][0] ? (uint32_t)strtoul(kept_rgb[k], NULL, 16) : 0, eff);
+        char p[300];
+        led_path(p, sizeof p, "effect_cycles", k);
+        if (kept_cycles[k][0] && access(p, W_OK) == 0) {
+            snprintf(eff, sizeof eff, "%s\n", kept_cycles[k]);
+            put(p, eff);
+        }
     }
+    char p[300], v[48];
+    if (set_scale) {
+        led_file(p, sizeof p, "max_scale");
+        snprintf(v, sizeof v, "%s\n", kept_scale[0] ? kept_scale : "0");
+        put(p, v);
+    }
+    snprintf(v, sizeof v, "%s\n", kept_enable[0] ? kept_enable : "1");
+    led_enable(v);
     leds_on = 0;
     jdlog("lights: given back");
 }

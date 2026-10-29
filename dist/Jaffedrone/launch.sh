@@ -33,6 +33,8 @@ export LD_LIBRARY_PATH="/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH"
 #   JD_BEND=7          Brick Pro: the left stick bends up to 7 semitones (2 by default)
 #   JD_STICK_REACH=80  Brick Pro: take a stick to reach 80% of the way until it shows it goes further (60)
 #   JD_LEDS=0          Brick Pro: leave the lights around the sticks alone
+#   JD_LED_BRIGHTNESS=20  Brick Pro: the sticks' lights at 20 of 60 (default: as the system has them,
+#                      or 60 when that is 0, as MustardOS leaves them)
 #   JD_ROTATE=180      turn the picture, for a firmware whose screen is turned
 #   JD_SCREEN_REBUILD=0  don't make the renderer again after the MustardOS screen wake
 #   JD_JOYMAP=A=1,B=0  another firmware's button numbers (also L2, R2, L3, R3)

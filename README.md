@@ -519,9 +519,10 @@ light while it moves them; the row shows the value playing.
 **The lights.** The lights around the sticks show how far each is pushed: the left glows amber as it bows and
 rose as it bends, the right green for the harmonics and gold for its SOUND control, brighter the further it
 goes, and dark at rest. They are driven through TrimUI's `led_anim` lights (`/sys/class/led_anim`, the sticks'
-lights `l` and `r`), and on leaving they show what they showed before. If the system's light brightness is 0
-they stay dark (the log says so). `JD_LEDS=0` leaves them alone; `JD_LED_EFFECT` sets the effect number used for
-a steady colour (4).
+lights `l` and `r`), and on leaving they show what they showed before. MustardOS turns the lights' brightness
+to 0 when it starts, so while Jaffedrone runs a brightness of 0 is turned up to the most (60), and put back on
+leaving; `JD_LED_BRIGHTNESS=20` plays them dimmer (1 .. 60). `JD_LEDS=0` leaves them alone; `JD_LED_EFFECT` sets
+the effect number used for a steady colour (4).
 
 MIDI's pressure, bend, CC74 and CC91 still play the bow, bend, TONE and reverb.
 
