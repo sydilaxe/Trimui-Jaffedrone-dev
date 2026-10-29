@@ -1,11 +1,36 @@
 # Jaffedrone
 
-A five-string drone instrument for the TrimUI Brick, Brick Hammer and Brick Pro running TrimUI OS, ported
-from the Miyoo Mini Plus version. It joins an organic string drone
+A five-string drone instrument for the TrimUI Brick, Brick Hammer and Brick Pro running TrimUI OS or
+[MustardOS](https://muos.dev), ported from the Miyoo Mini Plus version. It joins an organic string drone
 to an algorithmic progression. You can play it as an instrument, or let it run as a slowly changing drone
 for meditation.
 
 **Manual:** [docs/Jaffedrone-Manual.pdf](docs/Jaffedrone-Manual.pdf) shows each command on a drawing of the Brick, with the app's screens (`make manual` rebuilds it).
+
+## Install
+
+Each release has a package for each device and firmware. The Brick Pro's adds the analog sticks.
+
+| | TrimUI OS | MustardOS |
+| --- | --- | --- |
+| **Brick**, **Brick Hammer** | `Jaffedrone-brick.zip` | `Jaffedrone-mustardos-brick.muxapp` |
+| **Brick Pro** | `Jaffedrone-brickpro.zip` | `Jaffedrone-mustardos-brickpro.muxapp` |
+
+**TrimUI OS:** unzip the zip at the root of the SD card, so the app lands in `SD:/Apps/Jaffedrone`, then
+open **Apps → Jaffedrone**. Press MENU to quit.
+
+**MustardOS:** copy the `.muxapp` into the `ARCHIVE` folder at the root of the first SD card, install it
+from **Applications → Archive Manager** (it lands in `MUOS/application/Jaffedrone`), then open
+**Applications → Jaffedrone**. By hand instead, unzip the `.muxapp` and copy its `Jaffedrone` folder into
+`MUOS/application/`. The app reads MustardOS's own controller, so the buttons are as labelled whatever A/B
+layout MustardOS is set to; the log names the controller it found. On the Brick Pro the screen can stay dark
+after an app opens under MustardOS (it plays, but nothing shows until the power button sleeps and wakes the
+device), so once its window is up Jaffedrone runs `wake_screen.sh`, which does what MustardOS does on
+waking: the framebuffer blanked and unblanked, and the saved brightness applied again.
+`JD_SCREEN_WAKE=` (empty) in `mux_launch.sh` turns it off.
+
+With a card mounted, `make install SD=/path/to/card` does the same from a build (add `DEVICE=brickpro` for
+the Brick Pro, `OS=mustardos` for MustardOS).
 
 ## The strings
 
@@ -504,9 +529,15 @@ Jaffedrone keeps a log for tuning the engine, following how it is played, and sp
 SELECT** cycles it OFF, BASIC and DETAIL; LOG shows in the header while it runs, and the choice is kept in
 `jaffedrone.cfg`. It starts at BASIC.
 
+- **At start:** a SYS line with the firmware (TrimUI OS or MustardOS), the board MustardOS names, this build
+  (brick or brickpro), the cores, the processor's governor and clock range; a HINT if the Brick build runs on
+  a Brick Pro or the other way round; the screen, the controllers found (with the numbering used: TrimUI
+  OS's, or MustardOS's for the Brick or the Brick Pro), the sound device, and how long start-up took.
 - **Events:** every message shown, parameter changes (repeats while a button is held are merged into one
   line), page changes, chord changes with their scale, and the audio setup at start. DETAIL adds every press
-  (with L2/R2 held) and hand playing: plucks, tongued notes, bowing or blowing, with how long.
+  (with L2/R2 held) and hand playing: plucks, tongued notes, bowing or blowing, with how long; every button,
+  hat and trigger as the controller sends it and as Jaffedrone reads it (the way to check a firmware's
+  button numbering); and on the Brick Pro the left stick taking up and letting go of a string.
 - **Status:** every 10 s (every second in DETAIL), for example:
   `STAT load avg 4% peak 9% late 0 gap max 22 ms calls 46.9/s of 46.9 | peak 0.71 rms 0.18 clips 0 | leveller avg 3.1 min 1.9 | screen avg 12 ms max 20 ms | audio realtime | cpu 1200 MHz 52 C cores 0-1 | sync lead`
 
@@ -527,11 +558,13 @@ SELECT** cycles it OFF, BASIC and DETAIL; LOG shows in the header while it runs,
 - **Hints:** plain suggestions when something looks wrong: a high load or late callbacks (raise `JD_BUFFER`,
   or use fewer sympathetic strings), clipping (lower MASTER), a leveller lifting at full (raise LEVEL or
   BREATH), or a voice off its note (try another REG, BREATH or EMBOUCH).
-- **System report:** the launcher also writes `sysinfo.txt` beside the log: the firmware, the processor,
-  the sound cards, USB and input devices and what is running at start, then a sample every 10 s while
-  Jaffedrone plays (up to an hour).
-- **Summary** at exit: presses per button, time on each page, the five most adjusted parameters, and how
-  much was played by hand.
+- **System report:** the launcher also writes `sysinfo.txt` beside the log (`sysinfo.sh`, shared with HI5
+  and RadioScan): the firmware and board, the processor, memory, display, the sound cards, USB and input
+  devices and what is running at start, then a sample every 10 s while Jaffedrone plays (up to an hour):
+  load, clock, governor, temperature, the busiest processes. `JD_SYSINFO=0` in `launch.sh` turns it off.
+- **Summary** at exit: the session's dropouts, its worst audio load, longest gap and the processor's clock
+  range and hottest temperature; presses per button, time on each page, the five most adjusted parameters,
+  and how much was played by hand.
 
 The audio thread only fills counters; all writing happens in the main thread.
 
@@ -560,19 +593,25 @@ The audio thread only fills counters; all writing happens in the main thread.
     nothing that can be heard.
 - `make bench` ranks 32 voice mixtures (each voice five times over, and mixtures such as two cymbals, two
   flutes and a free reed) at their worst, heaviest first, relative to the default drone.
-- `make install SD=/path/to/card [DEVICE=brickpro]` copies the app into `Apps/Jaffedrone`.
+- `make install SD=/path/to/card [DEVICE=brickpro] [OS=mustardos]` copies the app into `Apps/Jaffedrone`
+  (or `MUOS/application/Jaffedrone`).
 - `make package` writes `build/Jaffedrone-brick.zip` and `build/Jaffedrone-brickpro.zip`, laid out to unzip
-  at the root of the SD card.
+  at the root of the SD card, and `build/Jaffedrone-mustardos-brick.muxapp` and `-brickpro.muxapp` for
+  MustardOS: the same app folder in `Jaffedrone/`, plus `dist/mustardos/` (`mux_launch.sh`,
+  `wake_screen.sh`, the list glyph). The same binaries run on both firmwares: at run time they read
+  MustardOS's "muOS-Keys" controller when it is there (numbered as in MustardOS's `device/tui-brick*`
+  controller maps) and TrimUI OS's controller otherwise.
 
 ### GitHub builds and releases
 
 Every push runs the **build** workflow:
 
-- It builds both TrimUI packages with zig. The zips are kept as the run's `Jaffedrone-trimui` artifact.
+- It builds the TrimUI OS zips and the MustardOS `.muxapp`s with zig. They are kept as the run's
+  `Jaffedrone-trimui` artifact.
 - It runs the test harness, checking that there is no clipping, every wind exciter is in tune, the chord
   memory, key lock and presets work, and Wi-Fi sync locks. The output and screenshots are kept as
   `test-output`.
 
-To publish a release with both zips attached, go to **Actions → build → Run workflow** and fill in a tag such as
+To publish a release with the four packages attached, go to **Actions → build → Run workflow** and fill in a tag such as
 `v0.11.0`. Pushing a `v*` tag, or creating a release on the website, does the same. The release text comes from
 `.github/release-notes.md`.

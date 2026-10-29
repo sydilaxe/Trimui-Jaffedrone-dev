@@ -1,7 +1,8 @@
 /* TrimUI Brick, Brick Hammer and Brick Pro front-end: SDL2 as shipped with
- * TrimUI OS (Allwinner A133P: four Cortex-A53 cores, 1 GB, a 1024x768
- * screen). The 640x480 pages are drawn as on the Miyoo and scaled 1.6x to
- * fill the screen.
+ * TrimUI OS or MustardOS (Allwinner A133P: four Cortex-A53 cores, 1 GB, a
+ * 1024x768 screen). The same binary runs on both: it reads the buttons of
+ * whichever controller the firmware gives it. The 640x480 pages are drawn as
+ * on the Miyoo and scaled 1.6x to fill the screen.
  *
  * The four cores: the voices and the effects are made on cores 2 and 3, a
  * block apart (ahead.c); the screen and the system have cores 0 and 1, and
@@ -21,6 +22,7 @@
 #include <strings.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -185,38 +187,124 @@ static void audio_hotplug(void)
 
 /* ------------------------------------------------------------- input */
 
-/* the TrimUI's buttons, as SDL sees them (TrimUI OS, NextUI and MinUI
- * agree): the d-pad is hat 0, L2 and R2 are axes 2 and 5 */
-enum { JB_B = 0, JB_A = 1, JB_Y = 2, JB_X = 3, JB_L1 = 4, JB_R1 = 5, JB_SELECT = 6, JB_START = 7, JB_MENU = 8,
-       JB_L3 = 9, JB_R3 = 10 };
-static int joy_map[32];
+/* The buttons, as SDL sees them. The d-pad is hat 0 everywhere.
+ *   TrimUI OS (NextUI and MinUI agree): the TrimUI's own controller. L2 and R2
+ *     are axes 2 and 5; the Brick Pro's sticks are axes 0, 1 and 3, 4.
+ *   MustardOS: its "muOS-Keys" controller, numbered as in MustardOS's own
+ *     controller maps (device/tui-brick*), which differ between the Brick and
+ *     the Brick Pro. L2 and R2 are buttons; the Brick Pro's sticks are axes
+ *     0, 1 and 2, 3.
+ * As in Columbia Street and HI5. */
+enum { PAD_TRIMUI, PAD_MUOS_BRICK, PAD_MUOS_BRICKPRO, PAD_KINDS };
+static const char *const pad_names[PAD_KINDS] = {"TrimUI OS", "MustardOS (Brick)", "MustardOS (Brick Pro)"};
+
+/* each pad's button numbers, in the order of the BTN_ enum, then L3 and R3 */
+#define JB_L3 BTN_COUNT
+#define JB_R3 (BTN_COUNT + 1)
+#define JB_COUNT (BTN_COUNT + 2)
+static const signed char pad_buttons[PAD_KINDS][JB_COUNT] = {
+    /*                     UP  DN  LT  RT  A  B  X  Y  L1  R1  L2  R2  SEL STA MENU L3  R3 */
+    [PAD_TRIMUI]        = {-1, -1, -1, -1, 1, 0, 3, 2, 4,  5,  -1, -1, 6,  7,  8,   9,  10},
+    [PAD_MUOS_BRICK]    = {-1, -1, -1, -1, 5, 4, 6, 7, 8,  9,  10, 11, 12, 13, 14,  15, 16},
+    [PAD_MUOS_BRICKPRO] = {-1, -1, -1, -1, 6, 5, 7, 8, 9,  10, 11, 12, 13, 14, 15,  16, 17},
+};
+static const char *const jb_names[JB_COUNT] = {"UP", "DOWN", "LEFT",  "RIGHT", "A",    "B",  "X", "Y", "L1",
+                                               "R1", "L2",   "R2",    "SELECT", "START", "MENU", "L3", "R3"};
+
+/* what each pad's axes do */
+enum { AX_NONE, AX_L2, AX_R2, AX_LX, AX_LY, AX_RX, AX_RY };
+#define PAD_AXES 6
+static const unsigned char pad_axes[PAD_KINDS][PAD_AXES] = {
+    [PAD_TRIMUI] = {AX_LX, AX_LY, AX_L2, AX_RX, AX_RY, AX_R2},
+    [PAD_MUOS_BRICK] = {AX_NONE},
+    [PAD_MUOS_BRICKPRO] = {AX_LX, AX_LY, AX_RX, AX_RY},
+};
+
+/* joy_map[pad][SDL button]: a BTN_, JB_L3 / JB_R3, or -1 */
+static int joy_map[PAD_KINDS][32];
 
 static void joy_map_default(void)
 {
-    for (int i = 0; i < 32; i++)
-        joy_map[i] = -1;
-    joy_map[JB_B] = BTN_B, joy_map[JB_A] = BTN_A, joy_map[JB_Y] = BTN_Y, joy_map[JB_X] = BTN_X;
-    joy_map[JB_L1] = BTN_L1, joy_map[JB_R1] = BTN_R1;
-    joy_map[JB_SELECT] = BTN_SELECT, joy_map[JB_START] = BTN_START, joy_map[JB_MENU] = BTN_MENU;
-    /* JD_JOYMAP=A=1,B=0,...: another firmware's numbering */
+    for (int p = 0; p < PAD_KINDS; p++) {
+        for (int i = 0; i < 32; i++)
+            joy_map[p][i] = -1;
+        for (int b = 0; b < JB_COUNT; b++)
+            if (pad_buttons[p][b] >= 0)
+                joy_map[p][(int)pad_buttons[p][b]] = b;
+    }
+    /* JD_JOYMAP=A=1,B=0,...: another firmware's numbering (for every pad) */
     const char *m = getenv("JD_JOYMAP");
-    static const char *const names[BTN_COUNT] = {"UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y",
-                                                  "L1", "R1", "L2", "R2", "SELECT", "START", "MENU"};
     while (m && *m) {
         char key[16];
         int num;
         if (sscanf(m, "%15[^=]=%d", key, &num) == 2 && num >= 0 && num < 32)
-            for (int b = 0; b < BTN_COUNT; b++)
-                if (!strcasecmp(key, names[b])) {
-                    for (int i = 0; i < 32; i++)
-                        if (joy_map[i] == b)
-                            joy_map[i] = -1;
-                    joy_map[num] = b;
-                }
+            for (int b = 0; b < JB_COUNT; b++)
+                if (!strcasecmp(key, jb_names[b]))
+                    for (int p = 0; p < PAD_KINDS; p++) {
+                        for (int i = 0; i < 32; i++)
+                            if (joy_map[p][i] == b)
+                                joy_map[p][i] = -1;
+                        joy_map[p][num] = b;
+                    }
         m = strchr(m, ',');
         if (m)
             m++;
     }
+}
+
+/* the open controllers, by SDL instance id, and which kind each is */
+#define MAX_PADS 8
+static struct {
+    SDL_JoystickID id;
+    int kind;
+} pads[MAX_PADS];
+static int npads;
+
+/* vendor and product from the GUID (Linux: bytes 4-5 and 8-9, little-endian),
+ * which every SDL2 has, unlike SDL_JoystickGetVendor */
+static int pad_vendor(SDL_Joystick *j)
+{
+    SDL_JoystickGUID g = SDL_JoystickGetGUID(j);
+    return g.data[4] | g.data[5] << 8;
+}
+static int pad_product(SDL_Joystick *j)
+{
+    SDL_JoystickGUID g = SDL_JoystickGetGUID(j);
+    return g.data[8] | g.data[9] << 8;
+}
+
+/* MustardOS's controller: named muOS-Keys, vendor 0x756d ("mu"); product 2 on
+ * the Brick and Brick Hammer, 3 on the Brick Pro */
+static int pad_kind(SDL_Joystick *j)
+{
+    const char *name = SDL_JoystickName(j);
+    if (!(name && strcasestr(name, "muos")) && pad_vendor(j) != 0x756d)
+        return PAD_TRIMUI;
+    switch (pad_product(j)) {
+    case 2: return PAD_MUOS_BRICK;
+    case 3: return PAD_MUOS_BRICKPRO;
+    }
+#ifdef JD_BRICKPRO
+    return PAD_MUOS_BRICKPRO;
+#else
+    return PAD_MUOS_BRICK;
+#endif
+}
+
+/* which map an event uses, or -1 to ignore it: when MustardOS's controller is
+ * there, it alone is read, so a press can't arrive twice through the TrimUI's
+ * own controller underneath it */
+static int event_pad(SDL_JoystickID id)
+{
+    int muos = 0, kind = -1;
+    for (int i = 0; i < npads; i++) {
+        muos |= pads[i].kind != PAD_TRIMUI;
+        if (pads[i].id == id)
+            kind = pads[i].kind;
+    }
+    if (kind < 0)
+        return PAD_TRIMUI; /* not seen opening: as before */
+    return muos && kind == PAD_TRIMUI ? -1 : kind;
 }
 
 static int map_key(SDL_Keycode k)
@@ -259,6 +347,8 @@ static void on_trigger(int which, int value)
     int down = trig_down[which] ? value > 8192 : value > 16384;
     if (down != trig_down[which]) {
         trig_down[which] = down;
+        if (jdlog_level() == LOG_DETAIL)
+            jdlog("input: %s %s (axis at %d)", which ? "R2" : "L2", down ? "down" : "up", value);
         ui_button(which ? BTN_R2 : BTN_L2, down);
     }
 }
@@ -271,12 +361,8 @@ static void on_trigger(int which, int value)
  *   right stick  left / right: TONE darker / brighter, two octaves either
  *                way; up / down: more / less reverb
  *   L3           pluck the selected string;  R3  the next chord
- * Axes (as on the TrimUI Smart Pro): 0, 1 left x, y; 3, 4 right x, y. */
-#define AXIS_LX 0
-#define AXIS_LY 1
-#define AXIS_RX 3
-#define AXIS_RY 4
-static float stick[5]; /* -1 .. 1, centre dead zone removed */
+ * Axes: pad_axes above. */
+static float stick[AX_RY + 1]; /* by AX_LX .. AX_RY: -1 .. 1, centre dead zone removed */
 static int stick_bowing = -1, stick_bent = -1;
 static float bend_range = 2.f;
 
@@ -292,7 +378,7 @@ static float deadzone(int v)
 static void sticks_apply(void)
 {
     int s = ui_selected_string();
-    float up = -stick[AXIS_LY];
+    float up = -stick[AX_LY];
     ui_lock();
     /* bowing: from a light touch (past the dead zone) to as hard as R1 and a little over */
     if (up > 0.f) {
@@ -301,6 +387,8 @@ static void sticks_apply(void)
                 engine_bow(stick_bowing, 0), engine_bow_pressure(stick_bowing, 1.f);
             stick_bowing = s;
             engine_bow(s, 1);
+            if (jdlog_level() == LOG_DETAIL)
+                jdlog("input: left stick bows string %d", s + 1);
         }
         engine_bow_pressure(s, 0.15f + 1.05f * up * up);
     }
@@ -308,25 +396,42 @@ static void sticks_apply(void)
         engine_bow(stick_bowing, 0);
         engine_bow_pressure(stick_bowing, 1.f);
         stick_bowing = -1;
+        if (jdlog_level() == LOG_DETAIL)
+            jdlog("input: left stick let go");
     }
     if (stick_bent >= 0 && stick_bent != s)
         engine_express_bend(stick_bent, 0.f);
-    engine_express_bend(s, stick[AXIS_LX] * bend_range);
+    engine_express_bend(s, stick[AX_LX] * bend_range);
     stick_bent = s;
-    engine_express_tone(stick[AXIS_RX] * 2.f);
-    engine_express_space(-stick[AXIS_RY]);
+    engine_express_tone(stick[AX_RX] * 2.f);
+    engine_express_space(-stick[AX_RY]);
     ui_unlock();
 }
 #endif
 
 static void open_joysticks(void)
 {
-    for (int i = 0; i < SDL_NumJoysticks(); i++)
-        if (SDL_JoystickOpen(i))
-            jdlog("controller %d: %s, %d buttons, %d axes, %d hats", i, SDL_JoystickNameForIndex(i),
-                  SDL_JoystickNumButtons(SDL_JoystickFromInstanceID(SDL_JoystickGetDeviceInstanceID(i))),
-                  SDL_JoystickNumAxes(SDL_JoystickFromInstanceID(SDL_JoystickGetDeviceInstanceID(i))),
-                  SDL_JoystickNumHats(SDL_JoystickFromInstanceID(SDL_JoystickGetDeviceInstanceID(i))));
+    for (int i = 0; i < SDL_NumJoysticks(); i++) {
+        SDL_Joystick *j = SDL_JoystickOpen(i);
+        if (!j)
+            continue;
+        SDL_JoystickID id = SDL_JoystickInstanceID(j);
+        int known = 0;
+        for (int k = 0; k < npads; k++)
+            known |= pads[k].id == id;
+        if (known) {
+            SDL_JoystickClose(j); /* already open: drop the extra reference */
+            continue;
+        }
+        int kind = pad_kind(j);
+        if (npads < MAX_PADS)
+            pads[npads].id = id, pads[npads].kind = kind, npads++;
+        jdlog("controller %d: %s (%04x:%04x), %d buttons, %d axes, %d hats: %s buttons", i, SDL_JoystickName(j),
+              pad_vendor(j), pad_product(j), SDL_JoystickNumButtons(j), SDL_JoystickNumAxes(j),
+              SDL_JoystickNumHats(j), pad_names[kind]);
+        fprintf(stderr, "controller %d: %s (%04x:%04x): %s buttons\n", i, SDL_JoystickName(j), pad_vendor(j),
+                pad_product(j), pad_names[kind]);
+    }
 }
 
 static void on_event(const SDL_Event *e)
@@ -339,41 +444,62 @@ static void on_event(const SDL_Event *e)
         break;
     case SDL_JOYBUTTONDOWN:
     case SDL_JOYBUTTONUP: {
+        int pad = event_pad(e->jbutton.which);
         int b = e->jbutton.button, down = e->type == SDL_JOYBUTTONDOWN;
-        int m = b < 32 ? joy_map[b] : -1;
-        if (m >= 0)
+        int m = pad >= 0 && b < 32 ? joy_map[pad][b] : -1;
+        /* every press, raw and as read: for checking a firmware's numbering */
+        if (jdlog_level() == LOG_DETAIL)
+            jdlog("input: controller %d button %d %s: %s", (int)e->jbutton.which, b, down ? "down" : "up",
+                  pad < 0 ? "ignored (MustardOS's controller is read instead)" : m >= 0 ? jb_names[m] : "not used");
+        if (pad < 0)
+            break;
+        if (m >= 0 && m < BTN_COUNT)
             ui_button(m, down);
 #ifdef JD_BRICKPRO
-        else if (b == JB_L3 && down) {
-            ui_lock();
-            engine_pluck(ui_selected_string());
-            ui_unlock();
+        else if (m == JB_L3) {
+            if (down) {
+                ui_lock();
+                engine_pluck(ui_selected_string());
+                ui_unlock();
+            }
         }
-        else if (b == JB_R3 && down)
-            ui_button(BTN_SELECT, 1), ui_button(BTN_SELECT, 0);
+        else if (m == JB_R3) {
+            if (down)
+                ui_button(BTN_SELECT, 1), ui_button(BTN_SELECT, 0);
+        }
 #endif
-        else if (down) /* worth knowing on a new firmware */
+        else if (down && jdlog_level() != LOG_DETAIL) /* worth knowing on a new firmware */
             jdlog("button %d (not used)", b);
         break;
     }
     case SDL_JOYHATMOTION:
-        if (e->jhat.hat == 0)
+        if (jdlog_level() == LOG_DETAIL)
+            jdlog("input: controller %d hat %d: %d", (int)e->jhat.which, e->jhat.hat, e->jhat.value);
+        if (e->jhat.hat == 0 && event_pad(e->jhat.which) >= 0)
             on_hat(e->jhat.value);
         break;
-    case SDL_JOYAXISMOTION:
-        if (e->jaxis.axis == 2)
-            on_trigger(0, e->jaxis.value);
-        else if (e->jaxis.axis == 5)
-            on_trigger(1, e->jaxis.value);
+    case SDL_JOYAXISMOTION: {
+        int pad = event_pad(e->jaxis.which);
+        int role = pad >= 0 && e->jaxis.axis < PAD_AXES ? pad_axes[pad][e->jaxis.axis] : AX_NONE;
+        if (role == AX_L2 || role == AX_R2)
+            on_trigger(role == AX_R2, e->jaxis.value);
 #ifdef JD_BRICKPRO
-        else if (e->jaxis.axis < 5) {
-            stick[e->jaxis.axis] = deadzone(e->jaxis.value);
+        else if (role != AX_NONE) {
+            stick[role] = deadzone(e->jaxis.value);
             sticks_apply();
         }
 #endif
         break;
+    }
     case SDL_JOYDEVICEADDED:
         open_joysticks();
+        break;
+    case SDL_JOYDEVICEREMOVED:
+        for (int i = 0; i < npads; i++)
+            if (pads[i].id == e->jdevice.which) {
+                pads[i] = pads[--npads];
+                break;
+            }
         break;
     case SDL_AUDIODEVICEADDED:
     case SDL_AUDIODEVICEREMOVED:
@@ -384,6 +510,34 @@ static void on_event(const SDL_Event *e)
         got_signal = 1;
         break;
     }
+}
+
+/* ------------------------------------------------------------- screen */
+
+/* JD_SCREEN_WAKE: a command to run once the window is on show. MustardOS's
+ * mux_launch.sh points it at wake_screen.sh: on the Brick Pro the screen can
+ * stay dark when an app opens its window there, until waking from sleep sets
+ * the display up again, so the script does what waking does. Run in the
+ * background (a double fork, so nothing is left to reap), never waited for.
+ * As in Columbia Street and HI5. */
+#define SCREEN_WAKE_FRAME 10 /* about a third of a second of frames */
+static void screen_wake(void)
+{
+    const char *cmd = getenv("JD_SCREEN_WAKE");
+    if (!cmd || !*cmd)
+        return;
+    jdlog("screen: waking it: %s", cmd);
+    fflush(stderr);
+    pid_t p = fork();
+    if (p == 0) {
+        if (fork() == 0) {
+            execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    if (p > 0)
+        waitpid(p, NULL, 0);
 }
 
 /* ------------------------------------------------------------- cores */
@@ -406,6 +560,7 @@ int main(int argc, char **argv)
     signal(SIGTERM, on_signal);
     signal(SIGINT, on_signal);
 
+    uint64_t t_start = now_us();
     fprintf(stderr, "jaffedrone v%s for %s\n", JD_VERSION, DEVICE_NAME);
     jdlog_set_clock(now_us() / 1000);
     jdlog_open("jaffedrone_log.txt", "jaffedrone.cfg");
@@ -517,7 +672,9 @@ int main(int argc, char **argv)
     midi_set_latency((float)((use_ahead ? ahead : 0) + bufsz) / rate);
     if (env_int("JD_MIDI", 1))
         midi_start(pin ? 1 : -1);
+    jdlog("startup: running after %.2f s", (now_us() - t_start) / 1e6);
     Uint32 last = SDL_GetTicks(), last_save = last, next_draw = last;
+    int frames = 0;
     static uint32_t fb[SCREEN_W * SCREEN_H];
     while (!ui_quit_requested() && !got_signal) {
         SDL_Event e;
@@ -550,6 +707,8 @@ int main(int argc, char **argv)
         SDL_RenderClear(ren);
         SDL_RenderCopyEx(ren, tex, NULL, &dst, rot, NULL, SDL_FLIP_NONE);
         SDL_RenderPresent(ren);
+        if (++frames == SCREEN_WAKE_FRAME)
+            screen_wake();
 
         if (now - last_save > 15000) {
             last_save = now;

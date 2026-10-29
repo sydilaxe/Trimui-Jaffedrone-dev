@@ -1,12 +1,16 @@
-# Jaffedrone — 5-string drone instrument for the TrimUI Brick, Brick Hammer and Brick Pro (TrimUI OS)
+# Jaffedrone — 5-string drone instrument for the TrimUI Brick, Brick Hammer and Brick Pro (TrimUI OS
+# and MustardOS)
 #
 #   make          cross-compile both builds with zig (aarch64, glibc 2.28, against the device's SDL2):
 #                   build/brick/jaffedrone      TrimUI Brick and Brick Hammer
 #                   build/brickpro/jaffedrone   TrimUI Brick Pro (adds the analog sticks)
 #   make package  both, zipped to unzip at the root of the SD card:
 #                   build/Jaffedrone-brick.zip, build/Jaffedrone-brickpro.zip
+#                 and as MustardOS application archives (the same binaries):
+#                   build/Jaffedrone-mustardos-brick.muxapp, build/Jaffedrone-mustardos-brickpro.muxapp
 #   make test     build the host harness and render screenshots + audio into build/test
-#   make install SD=/path/to/card [DEVICE=brickpro]   copy the app into SD/Apps/Jaffedrone
+#   make install SD=/path/to/card [DEVICE=brickpro] [OS=mustardos]
+#                 copy the app into SD/Apps/Jaffedrone (or SD/MUOS/application/Jaffedrone)
 #
 # zig: ZIG=/path/to/zig, or `pip install ziglang==0.14.1` (used as `python3 -m ziglang`)
 
@@ -79,18 +83,45 @@ build/Jaffedrone-%.zip: build/%/jaffedrone $(APP)/icon.png $(APP)/splash.jdi doc
 		build/sd-$*/Apps/Jaffedrone/jaffedrone_ui.cfg build/sd-$*/Apps/Jaffedrone/sysinfo.txt
 	cp build/$*/jaffedrone build/sd-$*/Apps/Jaffedrone/
 	cp docs/Jaffedrone-Manual.pdf build/sd-$*/Apps/Jaffedrone/
-	chmod +x build/sd-$*/Apps/Jaffedrone/launch.sh build/sd-$*/Apps/Jaffedrone/jaffedrone
+	echo $* > build/sd-$*/Apps/Jaffedrone/DEVICE # which build: in sysinfo.txt
+	chmod +x build/sd-$*/Apps/Jaffedrone/launch.sh build/sd-$*/Apps/Jaffedrone/sysinfo.sh \
+		build/sd-$*/Apps/Jaffedrone/jaffedrone
 	cd build/sd-$* && zip -qr ../Jaffedrone-$*.zip Apps
 
-package: build/Jaffedrone-brick.zip build/Jaffedrone-brickpro.zip
+# MustardOS: a .muxapp is a zip that its Archive Manager unpacks into the application folder
+# (MUOS/application on the card), and the folder's name is the name in the Applications list.
+# The same app folder and binary, plus mux_launch.sh (how MustardOS starts an app),
+# wake_screen.sh (the Brick Pro's screen can stay dark otherwise) and the list glyph.
+MUX := dist/mustardos
+MUX_APP := Jaffedrone
+build/Jaffedrone-mustardos-%.muxapp: build/Jaffedrone-%.zip $(MUX)/mux_launch.sh $(MUX)/wake_screen.sh $(MUX)/glyph/jaffedrone.svg
+	rm -rf build/mux-$* $@
+	mkdir -p "build/mux-$*/$(MUX_APP)"
+	cp -r build/sd-$*/Apps/Jaffedrone/. "build/mux-$*/$(MUX_APP)/"
+	cp -r $(MUX)/. "build/mux-$*/$(MUX_APP)/"
+	chmod +x "build/mux-$*/$(MUX_APP)/mux_launch.sh" "build/mux-$*/$(MUX_APP)/wake_screen.sh"
+	cd build/mux-$* && zip -qr ../Jaffedrone-mustardos-$*.muxapp "$(MUX_APP)"
+
+package: build/Jaffedrone-brick.zip build/Jaffedrone-brickpro.zip \
+	build/Jaffedrone-mustardos-brick.muxapp build/Jaffedrone-mustardos-brickpro.muxapp
 
 DEVICE ?= brick
+OS ?= trimui
+ifeq ($(OS),mustardos)
+INSTALL_DIR = $(SD)/MUOS/application/$(MUX_APP)
+INSTALL_ROOT = $(SD)/MUOS
+else
+INSTALL_DIR = $(SD)/Apps/Jaffedrone
+INSTALL_ROOT = $(SD)/Apps
+endif
 install: build/$(DEVICE)/jaffedrone $(APP)/icon.png $(APP)/splash.jdi
-	@test -n "$(SD)" || (echo "usage: make install SD=/path/to/mounted/sdcard [DEVICE=brickpro]" && exit 1)
-	@test -d "$(SD)/Apps" || (echo "$(SD)/Apps not found — is this the TrimUI card?" && exit 1)
-	mkdir -p "$(SD)/Apps/Jaffedrone"
-	cp -r $(APP)/. "$(SD)/Apps/Jaffedrone/"
-	cp build/$(DEVICE)/jaffedrone "$(SD)/Apps/Jaffedrone/"
+	@test -n "$(SD)" || (echo "usage: make install SD=/path/to/mounted/sdcard [DEVICE=brickpro] [OS=mustardos]" && exit 1)
+	@test -d "$(INSTALL_ROOT)" || (echo "$(INSTALL_ROOT) not found — is this the $(OS) card?" && exit 1)
+	mkdir -p "$(INSTALL_DIR)"
+	cp -r $(APP)/. "$(INSTALL_DIR)/"
+	if [ "$(OS)" = mustardos ]; then cp -r $(MUX)/. "$(INSTALL_DIR)/"; fi
+	cp build/$(DEVICE)/jaffedrone "$(INSTALL_DIR)/"
+	echo $(DEVICE) > "$(INSTALL_DIR)/DEVICE"
 	sync
 
 clean:

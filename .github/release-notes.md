@@ -1,7 +1,19 @@
-Jaffedrone test build for the TrimUI Brick, Brick Hammer and Brick Pro (TrimUI OS).
+Jaffedrone test build for the TrimUI Brick, Brick Hammer and Brick Pro (TrimUI OS and MustardOS).
 
-**Install:** unzip `Jaffedrone-brick.zip` (Brick, Brick Hammer) or `Jaffedrone-brickpro.zip` (Brick Pro) at
-the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Apps → Jaffedrone**.
+**Install on TrimUI OS:** unzip `Jaffedrone-brick.zip` (Brick, Brick Hammer) or `Jaffedrone-brickpro.zip` (Brick
+Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Apps → Jaffedrone**.
+
+**Install on MustardOS:** copy `Jaffedrone-mustardos-brick.muxapp` (Brick, Brick Hammer) or
+`Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
+from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
+
+**New: MustardOS, and logs for tuning**
+- Packages for MustardOS on the Brick, Brick Hammer and Brick Pro. The app reads MustardOS's controller, so
+  every button (and the Brick Pro's sticks) works as on TrimUI OS.
+- The screen no longer stays dark on a Brick Pro under MustardOS.
+- The log names the firmware, board and build at start, flags the wrong build for the device, sums up the
+  session's dropouts, load, clock and temperature at the end, and at DETAIL logs every button as the
+  controller sends it. `sysinfo.txt` now covers MustardOS too.
 
 **New on TrimUI**
 - Ported from the Miyoo Mini Plus: the same instrument and the same sound, on SDL2, the pages scaled 1.6x to
