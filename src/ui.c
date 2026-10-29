@@ -161,6 +161,19 @@ void ui_summary(void (*out)(const char *line))
 static int splash_ms; /* the start-up screen, until a button or this runs out */
 void ui_init(void) { splash_ms = 2500; }
 int ui_selected_string(void) { return cur_s; }
+int ui_splash_showing(void) { return splash_ms > 0; }
+
+/* the Brick Pro's right stick: up / down plays HARM, left / right the
+ * SOUND control mapped to it (R3 on a SOUND row maps that row) */
+static int sticks_on, stick_p = SP_BRIGHT;
+void ui_set_sticks(int on) { sticks_on = on; }
+int ui_stick_param(void) { return stick_p; }
+static int stick_mappable(int p) { return p >= SP_NOTE && p <= SP_BUZZ && p != SP_FINE && p != SP_LEVEL; }
+void ui_set_stick_param(int p)
+{
+    if (stick_mappable(p))
+        stick_p = p;
+}
 void ui_notice(const char *msg) { say("%s", msg); }
 int ui_quit_requested(void) { return quit; }
 int ui_take_changed(void)
@@ -218,6 +231,27 @@ static const int comp_b[7] = {GP_MOTION, GP_HOME, GP_COLOR, GP_EVOLVE, GP_RELATE
 #define MIX_FX_Y 276
 #define MIX_FXC_Y 344
 #define MIX_FXW 160
+
+static void layout(int pg);
+/* R3 on SOUND: the selected row goes on the right stick's left / right */
+int ui_stick_map(void)
+{
+    if (page != PAGE_SOUND || splash_ms > 0)
+        return 0;
+    layout(page);
+    const Cell *c = sel_cell[page] < ncell ? &cells[sel_cell[page]] : NULL;
+    if (!c || c->kind != CK_S)
+        return 0;
+    if (c->b == SP_HARM)
+        say("HARM IS ALWAYS ON RIGHT STICK UP/DOWN");
+    else if (!stick_mappable(c->b))
+        say("%s CAN'T GO ON THE STICK", sparam_name(c->a, c->b));
+    else {
+        stick_p = c->b;
+        say("RIGHT STICK <>: %s", sparam_name(c->a, c->b));
+    }
+    return 1;
+}
 
 /* ------------------------------------------------------------- presets
  * Ten slots, each a whole song (sound, rings, tuning, the progression
@@ -1188,7 +1222,8 @@ static void draw_cells(void)
         int *v = cell_ref(c, &d);
         char val[24];
         cell_format(c, val, sizeof val);
-        float t = (float)(*v - d->min) / (d->max - d->min);
+        /* a voice's control shows what it plays: the song's, or the right stick's */
+        float t = (float)((c->kind == CK_S ? engine_param_played(c->a, c->b) : *v) - d->min) / (d->max - d->min);
         int on = c->kind == CK_S ? song.on[(int)c->a] : 1;
         if (c->kind == CK_F && c->b > FX_SCOUNT && song.fx[FX_SCOUNT] == 0)
             on = 0;
@@ -1208,6 +1243,12 @@ static void draw_cells(void)
             on = 0; /* mono + clock plays every voice from the centre */
         param_row(c->x, c->y, c->w, c->h, i == sel_cell[page], on, c->kind == CK_S ? sparam_name(c->a, c->b) : d->name, val, t,
                   d->min < 0, cell_col(c));
+        /* the rows the right stick plays, on the string it plays: a mark at
+         * the right edge, lit while the stick moves them */
+        if (sticks_on && c->kind == CK_S && c->a == cur_s && (c->b == stick_p || c->b == SP_HARM)) {
+            int moved = engine_param_played(c->a, c->b) != song.sp[(int)c->a][(int)c->b];
+            diamond(c->x + c->w - 4.f, c->y + 4.f, moved ? 4.f : 3.f, moved ? C_SEA : C_COPPER);
+        }
     }
 }
 

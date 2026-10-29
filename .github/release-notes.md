@@ -7,6 +7,27 @@ Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Ap
 `Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
 from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
 
+**Fix: the screen going black after the start-up screen**
+- After MustardOS's screen wake the app now makes its renderer again, and it rebuilds the picture whenever
+  SDL reports it lost or drawing fails, so the pages show instead of a black screen. The log's `screen:`
+  lines record the first frame, the wake, the first page, window events and every rebuild.
+
+**New: a MIDI keyboard plays the selected voice, and chords across the others**
+- The first key plays the voice selected on PLAY. Keys added while others are held take the next free voices,
+  so a chord builds across them and overlapping keys rotate through them; with all five held, the oldest key
+  gives up its voice. Muted voices are passed over.
+
+**New: the Brick Pro's sticks reach further, and light up**
+- **Full bowing:** the left stick now bows from a light touch to the engine's hardest (half again as hard as
+  R1). Each stick learns how far it really goes, and a diagonal reaches both ends, so bowing while bending
+  still reaches full.
+- **Right stick:** up / down plays the harmonics (HARM; a wind's register, a struck voice's sung mode);
+  left / right plays a SOUND control of your choice (BRIGHT at first). On SOUND, click the right stick on a
+  row to put it on the stick; the choice is kept.
+- **Lights:** the lights around the sticks glow as they are pushed, brighter the further they go (amber
+  bowing, rose bending, green harmonics, gold the mapped control), and go back to how they were on leaving.
+  `JD_LEDS=0` in `launch.sh` leaves them alone.
+
 **New: MustardOS, and logs for tuning**
 - Packages for MustardOS on the Brick, Brick Hammer and Brick Pro. The app reads MustardOS's controller, so
   every button (and the Brick Pro's sticks) works as on TrimUI OS.
@@ -25,7 +46,7 @@ from **Applications → Archive Manager**, then open **Applications → Jaffedro
   bend, mod wheel, pressure, sustain, CC74 (tone) and CC91 (reverb). Clock, START and STOP in and out.
 - **USB audio:** a USB sound card or DAC takes over the output while it is plugged in.
 - **Brick Pro:** the left stick bows (harder the further it goes) and bends the selected string, the right
-  stick moves TONE and the reverb; L3 plucks, R3 changes chord.
+  stick plays the harmonics and a SOUND control; L3 plucks, R3 changes chord.
 
 **From the Miyoo version — new in 0.13**
 - **Mono + clock out**, as on HI5: on SONG, set **OUTPUT** to **MONO+CLK** and the sound plays in mono on one

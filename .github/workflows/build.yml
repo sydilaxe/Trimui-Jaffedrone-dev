@@ -79,9 +79,15 @@ jobs:
           grep -q "render split: two threads 1, .*same sound 1" $r
           # USB MIDI and the Brick Pro's sticks
           grep -q "midi key: A3 -> .*(want 220: 1)" $r
+          grep -q "^midi voices: .*muted skipped (1): 1$" $r
           grep -q "midi clock in: START plays 1, 120 BPM -> .* (1), STOP stops 1" $r
           grep -q "midi clock out: START 1, .*(want 192: 1), STOP 1" $r
           grep -q "stick: .*(lighter is softer: 1); bend +2 .*(want 1.122: 1)" $r
+          grep -q "stick reach: .*(want 1: 1); .*(want both 1: 1); rest 0: 1; .*(want 0, light, 1.5: 1)" $r
+          grep -q "right stick: .*(want 2, 4: 1), flicker .*(want under 2: 1); .*(want 0 70 100: 1)" $r
+          grep -q "stick control: .* played live as from the song 1 .*, song kept 1" $r
+          grep -q "lights: found 1, .*effect 4: 1); given back .*: 1)" $r
+          grep -q "R3 on SOUND maps FOLD 1; .*(want 80: 1)" $r
           awk '/^render ahead:/ { exit !($12 + 0 >= 20) }' $r
           test "$(grep -c '^dsp WORST .*sounding 1' $r)" -eq 3
           grep -q "0 full-scale samples (want 0)" $r

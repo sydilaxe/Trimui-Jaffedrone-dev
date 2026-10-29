@@ -21,8 +21,8 @@ SDL_INC := third_party/SDL2-2.30.9-headers
 
 SRC    := src/engine.c src/ui.c src/gfx.c src/sync.c src/aclock.c src/log.c
 HDR    := src/engine.h src/ui.h src/gfx.h src/sync.h src/aclock.h src/log.h src/font_data.h src/logo_data.h
-PLAT   := src/ahead.c src/midi.c src/main_trimui.c
-PLATH  := src/ahead.h src/midi.h
+PLAT   := src/ahead.c src/midi.c src/sticks.c src/main_trimui.c
+PLATH  := src/ahead.h src/midi.h src/sticks.h
 CFLAGS := -O2 -std=gnu11 -Wall -Wextra -fno-math-errno
 APP    := dist/Jaffedrone
 
@@ -56,9 +56,9 @@ build/brickpro/jaffedrone: $(SRC) $(PLAT) $(HDR) $(PLATH) build/sdl2/libSDL2-2.0
 	@mkdir -p build/brickpro
 	$(DEVICE_CC) -DJD_BRICKPRO -o $@ $(SRC) $(PLAT) build/sdl2/libSDL2-2.0.so.0 -lm -lpthread -Wl,--allow-shlib-undefined -s
 
-build/jd_test: $(SRC) src/ahead.c src/midi.c src/main_test.c $(HDR) $(PLATH)
+build/jd_test: $(SRC) src/ahead.c src/midi.c src/sticks.c src/main_test.c $(HDR) $(PLATH)
 	@mkdir -p build
-	cc $(CFLAGS) -o $@ $(SRC) src/ahead.c src/midi.c src/main_test.c -lm -lpthread
+	cc $(CFLAGS) -o $@ $(SRC) src/ahead.c src/midi.c src/sticks.c src/main_test.c -lm -lpthread
 
 build/jd_bench: $(SRC) src/main_bench.c $(HDR)
 	@mkdir -p build
@@ -80,7 +80,8 @@ build/Jaffedrone-%.zip: build/%/jaffedrone $(APP)/icon.png $(APP)/splash.jdi doc
 	cp -r $(APP) build/sd-$*/Apps/
 	rm -f build/sd-$*/Apps/Jaffedrone/*.sav* build/sd-$*/Apps/Jaffedrone/*.jds build/sd-$*/Apps/Jaffedrone/log.txt \
 		build/sd-$*/Apps/Jaffedrone/jaffedrone_log.txt* build/sd-$*/Apps/Jaffedrone/jaffedrone.cfg \
-		build/sd-$*/Apps/Jaffedrone/jaffedrone_ui.cfg build/sd-$*/Apps/Jaffedrone/sysinfo.txt
+		build/sd-$*/Apps/Jaffedrone/jaffedrone_ui.cfg build/sd-$*/Apps/Jaffedrone/jaffedrone_stick.cfg \
+		build/sd-$*/Apps/Jaffedrone/sysinfo.txt
 	cp build/$*/jaffedrone build/sd-$*/Apps/Jaffedrone/
 	cp docs/Jaffedrone-Manual.pdf build/sd-$*/Apps/Jaffedrone/
 	echo $* > build/sd-$*/Apps/Jaffedrone/DEVICE # which build: in sysinfo.txt

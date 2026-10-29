@@ -27,7 +27,11 @@ layout MustardOS is set to; the log names the controller it found. On the Brick 
 after an app opens under MustardOS (it plays, but nothing shows until the power button sleeps and wakes the
 device), so once its window is up Jaffedrone runs `wake_screen.sh`, which does what MustardOS does on
 waking: the framebuffer blanked and unblanked, and the saved brightness applied again.
-`JD_SCREEN_WAKE=` (empty) in `mux_launch.sh` turns it off.
+`JD_SCREEN_WAKE=` (empty) in `mux_launch.sh` turns it off. Switching the display off and on can take the
+app's picture with it (the start-up screen shows, then black), so once the wake has finished the app makes
+its renderer again; it also does when SDL reports the picture lost or drawing fails. `JD_SCREEN_REBUILD=0`
+skips the planned rebuild. The log's `screen:` lines follow all of this: the first frame, the wake, the
+first page after the start-up screen, window events, rebuilds and any drawing errors.
 
 With a card mounted, `make install SD=/path/to/card` does the same from a build (add `DEVICE=brickpro` for
 the Brick Pro, `OS=mustardos` for MustardOS).
@@ -464,11 +468,17 @@ are found as they are plugged in, and a message names each one.
 
 **MIDI in** (any channel; `src/midi.h` has the details):
 
-- **Notes:** each key takes a string (the one free longest) and tunes it to the key played. The tuning is a
-  bend on top of the song, so the song is never changed. The key plucks as hard as it is struck and bows
-  while held (a wind voice is tongued and blown). In LATCH a key starts its string droning (a soft key
-  swells in with the bow, a firm one plucks), and letting go fades it over its RELEASE. With
-  `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play strings 1-5 instead.
+- **Notes:** each key takes a voice and tunes it to the key played. The tuning is a bend on top of the song,
+  so the song is never changed.
+  - **Which voice:** the first key plays the voice selected on PLAY. Each key added while others are held
+    takes the next free voice round from the last one taken, so a chord builds across the voices and a run
+    of overlapping keys rotates through them. With all five held, the key held longest gives up its voice.
+    Muted voices and voices that only listen (AURA) are passed over, so muting voices narrows what the
+    keyboard plays.
+  - **How it plays:** the key plucks as hard as it is struck and bows while held (a wind voice is tongued
+    and blown). In LATCH a key starts its voice droning (a soft key swells in with the bow, a firm one
+    plucks), and letting go fades it over its RELEASE.
+  - With `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play voices 1-5 instead.
 - **Pitch bend:** two semitones. **Mod wheel** and **pressure:** how hard the held strings are bowed.
   **CC64:** sustain. **CC74:** TONE. **CC91:** reverb. **CC120 / CC123:** everything let go.
 - **Clock:** the tempo follows it, and its phase is held by trimming the playback speed, as Wi-Fi sync does.
@@ -489,13 +499,31 @@ PLAY and spring back when let go; nothing they do is saved.
 
 | Stick | Does |
 |---|---|
-| left, up | bow the string by hand, from a light touch to harder than R1 (a wind voice: blow) |
+| left, up | bow the string by hand, from a light touch to the engine's hardest, half again as hard as R1 (a wind voice: blow) |
 | left, left / right | bend the string, two semitones either way (`JD_BEND=7` for seven) |
-| right, left / right | TONE, darker / brighter, two octaves either way |
-| right, up / down | more / less reverb |
-| L3 / R3 (click) | pluck the string / the next chord |
+| right, up / down | HARM: up touches higher harmonics, to the 5th; down, lower, to none (a wind voice: its register; struck: the mode the bow sings) |
+| right, left / right | the SOUND control mapped to the stick (BRIGHT at first): right up to its most, left down to its least |
+| L3 / R3 (click) | pluck the string / the next chord; on SOUND, R3 maps the row under the cursor to the right stick |
 
-MIDI's pressure, bend, CC74 and CC91 use the same controls, so a stick and a controller play alike.
+**Full range.** Each stick reaches its controls' whole range, straight or on a diagonal. A stick seldom
+reaches the end of its axis, so each direction learns how far it really goes (it is first taken to go 60% of
+the way, `JD_STICK_REACH=80` for 80%), and the round gate is stretched to a square, so a diagonal reaches both
+ends. HARM steps hold until the stick is most of the way to the next one, so a trembling hand doesn't flicker
+between two harmonics.
+
+**Mapping the right stick.** On SOUND, move to a row (NOTE, BOW, DECAY, BRIGHT, FOLD, STIFF, POS or BUZZ, in their
+wind and struck meanings too) and click the right stick: its left / right now plays that control. The choice
+is kept in `jaffedrone_stick.cfg`. The rows the stick plays are marked on the selected string's column and
+light while it moves them; the row shows the value playing.
+
+**The lights.** The lights around the sticks show how far each is pushed: the left glows amber as it bows and
+rose as it bends, the right green for the harmonics and gold for its SOUND control, brighter the further it
+goes, and dark at rest. They are driven through TrimUI's `led_anim` lights (`/sys/class/led_anim`, the sticks'
+lights `l` and `r`), and on leaving they show what they showed before. If the system's light brightness is 0
+they stay dark (the log says so). `JD_LEDS=0` leaves them alone; `JD_LED_EFFECT` sets the effect number used for
+a steady colour (4).
+
+MIDI's pressure, bend, CC74 and CC91 still play the bow, bend, TONE and reverb.
 
 ## Audio and the four cores
 
@@ -537,7 +565,8 @@ SELECT** cycles it OFF, BASIC and DETAIL; LOG shows in the header while it runs,
   line), page changes, chord changes with their scale, and the audio setup at start. DETAIL adds every press
   (with L2/R2 held) and hand playing: plucks, tongued notes, bowing or blowing, with how long; every button,
   hat and trigger as the controller sends it and as Jaffedrone reads it (the way to check a firmware's
-  button numbering); and on the Brick Pro the left stick taking up and letting go of a string.
+  button numbering); and on the Brick Pro the left stick taking up and letting go of a string (with how far
+  the stick has shown it goes). At start, on the Brick Pro, whether the sticks' lights were found.
 - **Status:** every 10 s (every second in DETAIL), for example:
   `STAT load avg 4% peak 9% late 0 gap max 22 ms calls 46.9/s of 46.9 | peak 0.71 rms 0.18 clips 0 | leveller avg 3.1 min 1.9 | screen avg 12 ms max 20 ms | audio realtime | cpu 1200 MHz 52 C cores 0-1 | sync lead`
 
@@ -588,7 +617,8 @@ The audio thread only fills counters; all writing happens in the main thread.
   - binaural beats, harmonic touch, chance, RELATE and the string gates;
   - Wi-Fi sync;
   - the two-core render (the same sound as one core), USB MIDI (a key's pitch, clock in and out) and the
-    sticks' bowing and bend;
+    sticks' bowing and bend, their reach (a short stick, a diagonal), the right stick's HARM steps and mapped
+    control, and the lights;
   - DSP load, including the worst cases (every effect up) and that resting silent struck modes changes
     nothing that can be heard.
 - `make bench` ranks 32 voice mixtures (each voice five times over, and mixtures such as two cymbals, two

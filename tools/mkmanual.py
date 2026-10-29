@@ -615,8 +615,11 @@ def build(out):
                     "or a hub): keyboards, controllers, sequencers, drum machines and USB sound cards. They are "
                     "found as they are plugged in; a message names each one.", P),
           Paragraph("MIDI in", H2),
-          table([("Notes", "each key takes a string (the one free longest) and tunes it to the key played, on "
-                           "top of the song (the song is never changed): it plucks as hard as the key is struck "
+          table([("Notes", "each key takes a voice and tunes it to the key played, on top of the song (the song "
+                           "is never changed). The first key plays the voice selected on PLAY; each key added "
+                           "while others are held takes the next free voice, so chords build across the voices "
+                           "and overlapping keys rotate through them; with all five held, the key held longest "
+                           "gives up its voice. Muted voices are passed over. A key plucks as hard as it is struck "
                            "and bows while held. A wind voice is tongued and blown. In LATCH a key starts the "
                            "string droning (a soft key swells in with the bow, a firm one plucks) and letting go "
                            "fades it over its RELEASE"),
@@ -641,16 +644,36 @@ def build(out):
     s += [Paragraph("Brick Pro: the sticks", H1),
           side(Brick("play_bow", {"LS": 1, "RS": 2}, pro=True),
                Paragraph("On the Brick Pro the sticks play the string selected on PLAY, and spring back when let "
-                         "go: nothing they do is saved.", P),
+                         "go: nothing they do is saved. Each stick reaches its controls' whole range, straight or "
+                         "on a diagonal: it learns how far it really goes the first time it is pushed all the "
+                         "way.", P),
                table([(num(1), "left stick ▲", "bow the string by hand: a light touch draws the bow lightly, "
-                                               "further presses harder (a wind voice: blow)"),
+                                               "all the way up as hard as the bow goes, half again as hard as R1 "
+                                               "(a wind voice: blow)"),
                       ("", "left stick ◀ ▶", "bend the string, up to two semitones either way"),
-                      (num(2), "right stick ◀ ▶", "TONE, darker / brighter, two octaves either way"),
-                      ("", "right stick ▲ ▼", "more / less reverb"),
+                      (num(2), "right stick ▲ ▼", "HARM: up touches higher harmonics, to the 5th; down, lower, to "
+                                                 "none (a wind voice: its register; struck: the mode the bow "
+                                                 "sings)"),
+                      ("", "right stick ◀ ▶", "the SOUND control on the stick (BRIGHT at first): right up to "
+                                             "its most, left down to its least"),
                       ("", "L3 (left click)", "pluck the string"),
-                      ("", "R3 (right click)", "the next chord")], widths=(9 * mm, 30 * mm, None)),
+                      ("", "R3 (right click)", "the next chord; on SOUND, put the row under the cursor on the "
+                                              "right stick")], widths=(9 * mm, 30 * mm, None)),
                Spacer(1, 6),
                Paragraph("<b>JD_BEND=7</b> in launch.sh bends up to seven semitones.", SMALL)),
+          Paragraph("Choosing the right stick's control", H2),
+          side(Brick("sound_stick", {"RS": 1}, pro=True),
+               Paragraph("On SOUND, move to a row (BOW, DECAY, BRIGHT, FOLD, STIFF, POS, BUZZ or NOTE) and click "
+                         "the right stick " + num(1) + ": its left / right now plays that control. The choice is "
+                         "kept. The rows the stick plays are marked on the selected string's column, and light up "
+                         "while the stick moves them; the row shows the value playing.", P),
+               Paragraph("The lights", H2),
+               Paragraph("The lights around the sticks show how far they are pushed: the left glows amber as it "
+                         "bows and rose as it bends, the right green for the harmonics and gold for its SOUND "
+                         "control, brighter the further each goes. At rest they are dark; on leaving, they show "
+                         "what they showed before.", P),
+               Paragraph("In launch.sh: <b>JD_LEDS=0</b> leaves the lights alone; <b>JD_STICK_REACH=80</b> takes a "
+                         "stick to reach 80% of the way before it shows how far it goes (60 at first).", SMALL)),
           PageBreak()]
 
     # -------------------------------------------------- log + quick reference
