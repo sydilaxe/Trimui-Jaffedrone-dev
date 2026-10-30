@@ -81,6 +81,25 @@ static void render_marked(int16_t *out, int frames)
     aclock_made(frames, engine_position(), engine_steps_per_frame());
 }
 
+/* the output's peak on each channel since the main thread last took it, for
+ * the top bar's level meter (bits of a float, kept with an atomic max) */
+static volatile uint32_t out_peak[2];
+static void track_peak(const int16_t *o, int frames)
+{
+    int m[2] = {0, 0};
+    for (int i = 0; i < frames; i++)
+        for (int c = 0; c < 2; c++) {
+            int a = o[i * 2 + c] < 0 ? -o[i * 2 + c] : o[i * 2 + c];
+            if (a > m[c])
+                m[c] = a;
+        }
+    for (int c = 0; c < 2; c++) {
+        uint32_t want = (uint32_t)m[c], was = __atomic_load_n(&out_peak[c], __ATOMIC_RELAXED);
+        while (want > was && !__atomic_compare_exchange_n(&out_peak[c], &was, want, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+            ;
+    }
+}
+
 static void audio_cb(void *ud, Uint8 *stream, int len)
 {
     (void)ud;
@@ -106,11 +125,13 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
         if (got < len / 4)
             aclock_silence(len / 4 - got);
         perf_audio_output((const int16_t *)stream, len / 4); /* JUMP: a click made here */
+        track_peak((const int16_t *)stream, len / 4);
         perf_audio_end(perf_t0);
         return;
     }
     render_marked((int16_t *)stream, len / 4);
     perf_audio_output((const int16_t *)stream, len / 4);
+    track_peak((const int16_t *)stream, len / 4);
     perf_audio_end(perf_t0);
     uint32_t spent = (uint32_t)(now_us() - t0);
     timing.us_sum += spent;
@@ -555,8 +576,9 @@ static void sticks_apply(void)
 }
 
 /* the lights: the left stick's amber as it bows, rose as it bends; the
- * right's green for the harmonics, gold for the mapped control; each as
- * bright as its stick is pushed */
+ * right's green for the harmonics, gold for the mapped control. On the Brick
+ * Pro each stick has its own ring, whose corners light toward where the stick
+ * points, as bright as it is pushed that way */
 static uint32_t mix_rgb(uint32_t a, uint32_t b, float t)
 {
     uint32_t o = 0;
@@ -572,11 +594,25 @@ static void leds_update(void)
         return;
     float bow = -stk[STK_LY] > 0.f ? -stk[STK_LY] : 0.f, bend = fabsf(stk[STK_LX]);
     float harm = fabsf(stk[STK_RY]), ctl = fabsf(stk[STK_RX]);
-    float li = fmaxf(bow, bend), ri = fmaxf(harm, ctl);
     uint32_t lc = mix_rgb(0xff8018, 0xff2a60, bow + bend > 0.f ? bend / (bow + bend) : 0.f);
     uint32_t rc = mix_rgb(0x18e8a0, 0xffb020, harm + ctl > 0.f ? ctl / (harm + ctl) : 0.f);
-    /* 32 steps of brightness: smooth to the eye, few writes */
-    leds_show(stick_led_colour(lc, floorf(li * 32.f + 0.5f) / 32.f), stick_led_colour(rc, floorf(ri * 32.f + 0.5f) / 32.f));
+    /* the top bar: the output's level, each channel from the centre out; it
+     * falls back over about a third of a second */
+    static float lev[2];
+    uint32_t bar[8];
+    for (int c = 0; c < 2; c++) {
+        float p = __atomic_exchange_n(&out_peak[c], 0, __ATOMIC_RELAXED) / 32000.f;
+        lev[c] = p > lev[c] ? p : lev[c] * 0.82f; /* called about every 33 ms */
+    }
+    level_bar(lev[0], lev[1], bar);
+    static int bar_on = -1; /* JD_LED_BAR=0: the bar left dark */
+    if (bar_on < 0)
+        bar_on = env_int("JD_LED_BAR", 1) != 0;
+    leds_set_bar(bar_on ? bar : NULL);
+    uint32_t lring[4], rring[4];
+    stick_ring(stk[STK_LX], -stk[STK_LY], lc, lring); /* up is negative from SDL */
+    stick_ring(stk[STK_RX], -stk[STK_RY], rc, rring);
+    leds_show_rings(lring, rring);
 }
 
 static void stick_cfg_load(void)

@@ -40,4 +40,18 @@ uint32_t stick_led_colour(uint32_t rgb, float intensity);
 int leds_open(const char *dir);
 /* show a colour on each stick's light (written only when it changes) */
 void leds_show(uint32_t left, uint32_t right);
+/* each stick's ring, corner by corner (upper left, lower left, lower right,
+ * upper right): on the Brick Pro its own four LEDs; where the driver can't
+ * address them one by one, the brightest corner on the stick's light */
+void leds_show_rings(const uint32_t left[4], const uint32_t right[4]);
+/* the top bar's eight LEDs, left to right (NULL: dark), shown with the
+ * rings' next write; only where the driver addresses the LEDs one by one */
+void leds_set_bar(const uint32_t bar[8]);
+/* a stereo level meter on the bar, from the centre out: the left channel to
+ * the left, the right to the right, green rising to amber and red near full
+ * scale. l, r: peak levels, 0 .. 1 (full scale) */
+void level_bar(float l, float r, uint32_t out[8]);
+/* a stick's ring: the corners toward where the stick points lit, as bright
+ * as it is pushed that way. x right, y up, -1 .. 1 */
+void stick_ring(float x, float y, uint32_t rgb, uint32_t out[4]);
 void leds_close(void); /* put back what they showed before */

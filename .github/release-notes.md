@@ -7,6 +7,13 @@ Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Ap
 `Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
 from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
 
+**New: both stick rings light up, and point**
+- Each stick now has its own ring: the left ring for the left stick, the right ring for the right one (only the
+  left ring lit before). The ring's corners light toward where the stick points, brighter the further it goes:
+  amber as it bows and rose as it bends on the left, green for the harmonics and gold for SOUND on the right.
+- The top LED bar is a stereo level meter: from the centre out, the left channel to the left and the right to
+  the right, green rising to amber and red near full scale.
+
 **New: the important settings by MIDI CC**
 - The voice, engine and play settings that matter most each have a MIDI CC, on any channel: CC 2 chooses the
   string, 14-29 set its voice (NOTE, LEVEL, BOW, DECAY, BRIGHT ... ON), 85-90 the engine (ENGINE, EXCITER,
