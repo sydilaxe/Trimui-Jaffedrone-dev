@@ -519,10 +519,14 @@ wind and struck meanings too) and click the right stick: its left / right now pl
 is kept in `jaffedrone_stick.cfg`. The rows the stick plays are marked on the selected string's column and
 light while it moves them; the row shows the value playing.
 
-**The lights.** The lights around the sticks show how far each is pushed: the left glows amber as it bows and
-rose as it bends, the right green for the harmonics and gold for its SOUND control, brighter the further it
-goes, and dark at rest. They are driven through TrimUI's `led_anim` lights (`/sys/class/led_anim`, the sticks'
-lights `l` and `r`), and on leaving they show what they showed before. MustardOS turns the lights' brightness
+**The lights.** Each stick has its own ring of four LEDs, and the corners toward where the stick points light
+up, brighter the further it goes: the left ring glows amber as it bows and rose as it bends, the right green for
+the harmonics and gold for its SOUND control, both dark at rest. They are driven through TrimUI's `led_anim`
+lights (`/sys/class/led_anim`), LED by LED through its `frame_hex` (the driver's named stick lights reach only
+the left ring on the Brick Pro; `JD_LED_FRAME=0` uses them instead), and on leaving the lights show what they
+showed before. The **top bar** is a stereo level meter of what Jaffedrone plays: from the centre out, the left
+channel to the left and the right to the right, green rising to amber and red near full scale (`JD_LED_BAR=0`
+leaves it dark). MustardOS turns the lights' brightness
 to 0 when it starts, so while Jaffedrone runs a brightness of 0 is turned up to the most (60), and put back on
 leaving; `JD_LED_BRIGHTNESS=20` plays them dimmer (1 .. 60). `JD_LEDS=0` leaves them alone; `JD_LED_EFFECT` sets
 the effect number used for a steady colour (4).

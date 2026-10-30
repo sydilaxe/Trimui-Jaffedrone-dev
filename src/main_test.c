@@ -2371,6 +2371,117 @@ int main(int argc, char **argv)
                    !strcmp(got[6], "3"));
     }
 
+    { /* the Brick Pro's rings, LED by LED (frame_hex): the left stick up lights the left ring's upper corners,
+       * the right stick right the right ring's right corners; the rest dark; given back at the end */
+        char ld[600], lp[700], mk[700];
+        snprintf(ld, sizeof ld, "%s/led_frame", out_dir);
+        snprintf(mk, sizeof mk, "mkdir -p '%s'", ld);
+        if (system(mk) != 0)
+            printf("rings: no folder\n");
+        const char *files[][2] = {{"effect_rgb_hex_l", "000000 "}, {"effect_rgb_hex_r", "000000 "}, {"effect_l", "4"},
+                                  {"effect_r", "4"}, {"effect_m", "4"}, {"max_scale", "0"}, {"effect_enable", "1"},
+                                  {"frame_hex", "000000 "}};
+        for (int i = 0; i < 8; i++) {
+            snprintf(lp, sizeof lp, "%s/%s", ld, files[i][0]);
+            FILE *f = fopen(lp, "w");
+            if (f)
+                fprintf(f, "%s\n", files[i][1]), fclose(f);
+        }
+        setenv("JD_LED_FRAME", "1", 1);
+        int found = leds_open(ld);
+        uint32_t l[4], r[4];
+        stick_ring(0.f, 1.f, 0xff8018, l);
+        stick_ring(1.f, 0.f, 0x18e8a0, r);
+        leds_show_rings(l, r);
+        char frame[400] = "", en[16] = "";
+        snprintf(lp, sizeof lp, "%s/frame_hex", ld);
+        FILE *f = fopen(lp, "r");
+        if (f) {
+            if (!fgets(frame, sizeof frame, f))
+                frame[0] = 0;
+            fclose(f);
+        }
+        snprintf(lp, sizeof lp, "%s/effect_enable", ld);
+        if ((f = fopen(lp, "r"))) {
+            if (!fgets(en, sizeof en, f))
+                en[0] = 0;
+            fclose(f);
+        }
+        unsigned v[23] = {0};
+        int n = 0;
+        for (char *q = frame; n < 23 && sscanf(q, "%6x", &v[n]) == 1; q += 7)
+            n++;
+        int lit[23];
+        for (int i = 0; i < 23; i++)
+            lit[i] = v[i] != 0;
+        /* 11-14 the left ring (upper left, lower left, lower right, upper right), 15-18 the right */
+        int ok = found && n == 23 && lit[10] && !lit[11] && !lit[12] && lit[13] && !lit[14] && !lit[15] && lit[16] &&
+                 lit[17] && v[10] == 0xff8018 && v[16] == 0x18e8a0 && en[0] == '0';
+        for (int i = 0; i < 23; i++)
+            if (i < 10 || i > 17)
+                ok &= !lit[i];
+        leds_close();
+        unsetenv("JD_LED_FRAME");
+        snprintf(lp, sizeof lp, "%s/frame_hex", ld);
+        if ((f = fopen(lp, "r"))) {
+            if (!fgets(frame, sizeof frame, f))
+                frame[0] = 0;
+            fclose(f);
+        }
+        snprintf(lp, sizeof lp, "%s/effect_enable", ld);
+        if ((f = fopen(lp, "r"))) {
+            if (!fgets(en, sizeof en, f))
+                en[0] = 0;
+            fclose(f);
+        }
+        int back = strncmp(frame, "000000 000000", 13) == 0 && en[0] == '1';
+        printf("rings: left up lights the left ring's upper corners, right right the right ring's right corners, the "
+               "rest dark: %d; given back (dark frame, effects on): %d\n", ok, back);
+    }
+
+    { /* the top bar's level meter: full scale on the left lights the left half to its red end, silence on the
+       * right leaves the right half dark; -21 dB lights two LEDs from the centre */
+        uint32_t b[8];
+        level_bar(1.f, 0.f, b);
+        int full = b[0] && b[1] && b[2] && b[3] && !b[4] && !b[5] && !b[6] && !b[7] && ((b[0] >> 16) & 255) > 200 &&
+                   ((b[0] >> 8) & 255) < 60;
+        level_bar(0.0891f, 0.0891f, b);
+        int half = b[3] && b[2] && !b[1] && !b[0] && b[4] && b[5] && !b[6] && !b[7];
+        /* shown in the frame, LEDs 1-8 */
+        char ld[600], lp[700], mk[700];
+        snprintf(ld, sizeof ld, "%s/led_bar", out_dir);
+        snprintf(mk, sizeof mk, "mkdir -p '%s' && cp '%s/led_frame/'* '%s/'", ld, out_dir, ld);
+        int shown = 0;
+        if (system(mk) == 0) {
+            setenv("JD_LED_FRAME", "1", 1);
+            leds_open(ld);
+            uint32_t z[4] = {0, 0, 0, 0};
+            level_bar(1.f, 1.f, b);
+            leds_set_bar(b);
+            leds_show_rings(z, z);
+            char frame[400] = "";
+            snprintf(lp, sizeof lp, "%s/frame_hex", ld);
+            FILE *f = fopen(lp, "r");
+            if (f) {
+                if (!fgets(frame, sizeof frame, f))
+                    frame[0] = 0;
+                fclose(f);
+            }
+            unsigned v[23] = {0};
+            int n = 0;
+            for (char *q = frame; n < 23 && sscanf(q, "%6x", &v[n]) == 1; q += 7)
+                n++;
+            shown = n == 23;
+            for (int i = 0; i < 23; i++)
+                shown &= i < 8 ? v[i] == b[i] : v[i] == 0;
+            leds_set_bar(NULL);
+            leds_close();
+            unsetenv("JD_LED_FRAME");
+        }
+        printf("level bar: full scale left %d, -21 dB two from the centre %d, shown on LEDs 1-8 %d\n", full, half,
+               shown);
+    }
+
     /* DSP benchmark: 30 s of the default drone */
     song_default();
     engine_init(RATE);
