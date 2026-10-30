@@ -221,6 +221,24 @@ static void all_off(uint64_t t)
         let_go(s, t);
 }
 
+/* the other CCs, for the main thread (ui_midi_cc): one writer (the MIDI
+ * thread), one reader */
+#define CCQ 256
+static volatile uint32_t ccq[CCQ];
+static volatile unsigned ccq_w, ccq_r;
+
+int midi_take_cc(int *ch, int *cc, int *v)
+{
+    if (ccq_r == ccq_w)
+        return 0;
+    __sync_synchronize();
+    uint32_t m = ccq[ccq_r % CCQ];
+    __sync_synchronize();
+    ccq_r++;
+    *ch = (int)(m >> 16 & 15), *cc = (int)(m >> 8 & 127), *v = (int)(m & 127);
+    return 1;
+}
+
 static void control(int ch, int cc, int v, uint64_t t)
 {
     switch (cc) {
@@ -241,6 +259,13 @@ static void control(int ch, int cc, int v, uint64_t t)
     case 91: engine_express_space((v - 64) / 63.f); break;
     case 120:
     case 123: all_off(t); break;
+    default:
+        if (ccq_w - ccq_r < CCQ) { /* full: the oldest are kept, a burst's last values dropped */
+            ccq[ccq_w % CCQ] = (uint32_t)(ch & 15) << 16 | (uint32_t)(cc & 127) << 8 | (uint32_t)(v & 127);
+            __sync_synchronize();
+            ccq_w++;
+        }
+        break;
     }
 }
 

@@ -1,6 +1,7 @@
 /* Pages, controls and drawing. Platform code feeds button edges and time. */
 #pragma once
 #include <stdint.h>
+#include <stdio.h>
 
 enum {
     BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT,
@@ -26,6 +27,10 @@ int ui_splash_showing(void); /* the start-up screen is up */
 int ui_take_changed(void);
 int ui_selected_string(void);      /* the string hand playing plays (the sticks, too) */
 void ui_notice(const char *msg);
+/* MIDI CC: the important settings, by CC number (any channel); 1 if it was
+ * one. Main thread. ui_midi_chart writes the CC table of the MIDI chart. */
+int ui_midi_cc(int ch, int cc, int v);
+void ui_midi_chart(FILE *f);
 /* the Brick Pro's right stick: left / right plays a SOUND control of the
  * selected string (BRIGHT at first); ui_stick_map, on R3, maps the SOUND row
  * under the cursor and returns 1, or returns 0 off SOUND (R3: next chord) */

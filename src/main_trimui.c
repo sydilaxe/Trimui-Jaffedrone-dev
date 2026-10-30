@@ -907,6 +907,9 @@ int main(int argc, char **argv)
         char note[48];
         while (midi_take_notice(note, sizeof note))
             ui_notice(note);
+        int mch, mcc, mv;
+        while (midi_take_cc(&mch, &mcc, &mv))
+            ui_midi_cc(mch, mcc, mv);
         Uint32 now = SDL_GetTicks();
         ui_tick((int)(now - last));
         last = now;

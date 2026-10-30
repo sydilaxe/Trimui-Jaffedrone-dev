@@ -326,6 +326,11 @@ static void sim_sync(int echo, double *mean_ms, double *worst_ms, float *delay)
 
 int main(int argc, char **argv)
 {
+    if (argc > 1 && !strcmp(argv[1], "--midi-chart")) { /* the CC table of docs/MIDI.md */
+        song_default();
+        ui_midi_chart(stdout);
+        return 0;
+    }
     const char *out = argc > 1 ? argv[1] : ".";
     out_dir = out;
     char path[512];
@@ -2116,6 +2121,28 @@ int main(int argc, char **argv)
                    "sixth key takes voice %d of the oldest %d (1), muted skipped (1): %d\n",
                    sel, v[0], v[1], v[2], alone_ok, v[4], v[5], steal, first,
                    chord_ok && alone_ok && rot_ok && steal == first && gone < 0 && mute_ok);
+            midi_reset();
+        }
+
+        { /* MIDI CC: a setting by its CC, on the selected string; the fixed CCs stay put */
+            song_default();
+            uint8_t m[3] = {0xb5, 2, 127}; /* channel 6: any channel is heard */
+            int mch, mcc, mv, n = 0;
+            midi_feed(m, 3, 1000);           /* STRING: 5 */
+            m[1] = 16, m[2] = 0;             /* its LEVEL: 0 */
+            midi_feed(m, 3, 2000);
+            m[1] = 90, m[2] = 127;           /* BPM: the top */
+            midi_feed(m, 3, 3000);
+            m[1] = 29, m[2] = 0;             /* string 5 muted */
+            midi_feed(m, 3, 4000);
+            m[1] = 74, m[2] = 100;           /* TONE: a fixed CC, not queued */
+            midi_feed(m, 3, 5000);
+            while (midi_take_cc(&mch, &mcc, &mv))
+                n += ui_midi_cc(mch, mcc, mv);
+            int ok = n == 4 && ui_selected_string() == NS - 1 && song.sp[NS - 1][SP_LEVEL] == 0 &&
+                     song.sp[0][SP_LEVEL] != 0 && song.gp[GP_BPM] == 200 && !song.on[NS - 1] && song.on[0];
+            printf("midi cc: string 5 selected, its level 0, BPM 200, muted; 74 not queued: %d\n", ok);
+            song_default();
             midi_reset();
         }
 

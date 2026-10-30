@@ -481,6 +481,9 @@ are found as they are plugged in, and a message names each one.
   - With `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play voices 1-5 instead.
 - **Pitch bend:** two semitones. **Mod wheel** and **pressure:** how hard the held strings are bowed.
   **CC64:** sustain. **CC74:** TONE. **CC91:** reverb. **CC120 / CC123:** everything let go.
+- **Settings by CC:** the important voice, engine and play settings each have a CC, on any channel: CC 2
+  chooses the string, 14-29 its voice, 85-90 the engine, 102-112 the string's rings, 113-119 the play.
+  [docs/MIDI.md](docs/MIDI.md) is the full MIDI implementation chart.
 - **Clock:** the tempo follows it, and its phase is held by trimming the playback speed, as Wi-Fi sync does.
   START, CONTINUE, STOP and song position start, stop and place the drone.
 
