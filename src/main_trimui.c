@@ -31,6 +31,7 @@
 #include "engine.h"
 #include "gfx.h"
 #include "log.h"
+#include "perflog.h"
 #include "midi.h"
 #include "sticks.h"
 #include "sync.h"
@@ -83,7 +84,7 @@ static void render_marked(int16_t *out, int frames)
 static void audio_cb(void *ud, Uint8 *stream, int len)
 {
     (void)ud;
-    uint64_t t0 = now_us();
+    uint64_t t0 = now_us(), perf_t0 = perf_audio_begin(len / 4); /* log.txt's STAT, PROC and JUMP lines */
     static uint64_t prev_t0;
     if (prev_t0 && t0 - prev_t0 > timing.gap_max_us)
         timing.gap_max_us = (uint32_t)(t0 - prev_t0);
@@ -104,9 +105,13 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
         int got = ahead_read((int16_t *)stream, len / 4);
         if (got < len / 4)
             aclock_silence(len / 4 - got);
+        perf_audio_output((const int16_t *)stream, len / 4); /* JUMP: a click made here */
+        perf_audio_end(perf_t0);
         return;
     }
     render_marked((int16_t *)stream, len / 4);
+    perf_audio_output((const int16_t *)stream, len / 4);
+    perf_audio_end(perf_t0);
     uint32_t spent = (uint32_t)(now_us() - t0);
     timing.us_sum += spent;
     if (spent > timing.us_max)
@@ -170,6 +175,9 @@ static int open_output(const char *name, int start)
     jdlog("audio out: %s, %d Hz, %d frames a buffer (SDL %s driver: %d Hz, %d channels, format 0x%x, %d frames)",
           name ? name : "speaker / headphones", rate, bufsz, SDL_GetCurrentAudioDriver(), have.freq,
           (int)have.channels, (unsigned)have.format, (int)have.samples);
+    perf_audio_open(rate, have.samples, name);
+    perf_log("AUDIO", "SDL %s driver: %d Hz, %d channels, format 0x%x, %d frames a buffer", SDL_GetCurrentAudioDriver(),
+             have.freq, (int)have.channels, (unsigned)have.format, (int)have.samples);
     if (start)
         SDL_PauseAudioDevice(dev, 0);
     return 1;
@@ -766,6 +774,11 @@ int main(int argc, char **argv)
     fprintf(stderr, "jaffedrone v%s for %s\n", JD_VERSION, DEVICE_NAME);
     jdlog_set_clock(now_us() / 1000);
     jdlog_open("jaffedrone_log.txt", "jaffedrone.cfg");
+#ifdef JD_BRICKPRO
+    perf_init("JD", "brickpro"); /* log.txt's performance lines, as in the other TrimUI apps (JD_LOG) */
+#else
+    perf_init("JD", "brick");
+#endif
     song_default();
     if (song_load(SAVE_PATH))
         fprintf(stderr, "jaffedrone: restored %s\n", SAVE_PATH);
@@ -930,8 +943,11 @@ int main(int argc, char **argv)
         stick_cfg_save();
 #endif
         int splash = ui_splash_showing();
+        uint64_t f0 = now_us();
         ui_draw(fb);
         present(fb, &dst, rot);
+        perf_frame(now_us() - f0);
+        perf_tick();
         if (++frames == SCREEN_WAKE_FRAME)
             screen_wake();
         /* the wake has finished (it runs twice, a second apart): the
@@ -969,6 +985,7 @@ int main(int argc, char **argv)
     jdlog_set_clock(now_us() / 1000);
     midi_stop();
     jdlog_close();
+    perf_close();
     sync_close();
     if (dev)
         SDL_CloseAudioDevice(dev);
