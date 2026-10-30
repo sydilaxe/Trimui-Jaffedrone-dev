@@ -3281,13 +3281,15 @@ void engine_effects(const EngineBlock *b, int16_t *out)
                 float mono_out = 0.5f * (L + R);
                 double ph = fmod(vo->phase * clk_ppqn - la_n / clk_spp, 1.0);
                 int16_t c = vo->playing && (ph < 0.0 ? ph + 1.0 : ph) * clk_spp < clk_w ? 30400 : 0;
-                int16_t a16 = (int16_t)lrintf(mono_out * 32000.f + dither());
+                int16_t a16 = (int16_t)lrintf(fminf(1.02f, fmaxf(-1.02f, mono_out)) * 32000.f + dither());
                 out[2 * n] = clk_left ? c : a16;
                 out[2 * n + 1] = clk_left ? a16 : c;
                 continue;
             }
-            out[2 * n] = (int16_t)lrintf(L * 32000.f + dither());
-            out[2 * n + 1] = (int16_t)lrintf(R * 32000.f + dither());
+            /* held to 16 bits: past full scale a sample would wrap round to
+             * the other side, a loud click (the leveller should never let it) */
+            out[2 * n] = (int16_t)lrintf(fminf(1.02f, fmaxf(-1.02f, L)) * 32000.f + dither());
+            out[2 * n + 1] = (int16_t)lrintf(fminf(1.02f, fmaxf(-1.02f, R)) * 32000.f + dither());
         }
     }
     {

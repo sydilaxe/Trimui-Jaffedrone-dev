@@ -591,10 +591,17 @@ SELECT** cycles it OFF, BASIC and DETAIL; LOG shows in the header while it runs,
 - **Hints:** plain suggestions when something looks wrong: a high load or late callbacks (raise `JD_BUFFER`,
   or use fewer sympathetic strings), clipping (lower MASTER), a leveller lifting at full (raise LEVEL or
   BREATH), or a voice off its note (try another REG, BREATH or EMBOUCH).
-- **System report:** the launcher also writes `sysinfo.txt` beside the log (`sysinfo.sh`, shared with HI5
-  and RadioScan): the firmware and board, the processor, memory, display, the sound cards, USB and input
-  devices and what is running at start, then a sample every 10 s while Jaffedrone plays (up to an hour):
-  load, clock, governor, temperature, the busiest processes. `JD_SYSINFO=0` in `launch.sh` turns it off.
+- **System report:** the launcher also writes `sysinfo.txt` beside the log (`sysinfo.sh`, shared with HI5,
+  RadioScan and Columbia Street): the firmware and board, the processor, memory, display, the sound path
+  (SDL's libraries, PipeWire's devices, rate and quantum, the mixer), USB and input devices and what is
+  running at start, then a sample every 10 s while Jaffedrone plays (up to an hour): load, clock, governor,
+  temperature, the busiest processes, and PipeWire's nodes with their **ERR** (xrun) counts, the times the
+  sound server itself ran short. `JD_SYSINFO=0` in `launch.sh` turns it off.
+- **Performance lines in `log.txt`**, as in the other TrimUI apps (`JD_LOG=0` off, `2` every second): a
+  **STAT** line every 10 s (audio load, dropouts, late calls, clicks, the screen, the processor), a **PROC**
+  line (the processor's time by thread with the audio thread marked, memory and its peak, page faults, free
+  memory, how often the audio thread was preempted), and a **JUMP** line for each click Jaffedrone's own
+  output made, with its time. A click heard with no JUMP and no dropout comes from the sound server.
 - **Summary** at exit: the session's dropouts, its worst audio load, longest gap and the processor's clock
   range and hottest temperature; presses per button, time on each page, the five most adjusted parameters,
   and how much was played by hand.

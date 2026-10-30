@@ -15,6 +15,7 @@
 #include "engine.h"
 #include "gfx.h"
 #include "log.h"
+#include "perflog.h"
 #include "sync.h"
 #include "ui.h"
 
@@ -2186,6 +2187,43 @@ int main(int argc, char **argv)
         printf("midi clock out: START %d, %d ticks in 4 s at 120 BPM (want 192: %d), STOP %d\n", starts, ticks_out,
                abs(ticks_out - 192) <= 1, stops);
         midi_reset();
+
+        { /* JUMP: a click in a clean tone is found; a tone, a square wave, a crushed tone and the drone are not */
+            static int16_t b[48000 * 2];
+            unsigned seg[5];
+            for (int k = 0; k < 4; k++) {
+                for (int i = 0; i < 48000; i++) {
+                    double ph = 2 * M_PI * 220.0 * i / 48000.0, x = k == 2 ? (sin(ph) > 0 ? 0.5 : -0.5) : 0.4 * sin(ph);
+                    if (k == 3)
+                        x = floor(x * 8.0) / 8.0;
+                    if (k == 1 && i == 30000)
+                        x += 0.5;
+                    b[i * 2] = b[i * 2 + 1] = (int16_t)(x * 32767);
+                }
+                if (k >= 2)
+                    perf_audio_output(b, 48000); /* a second of it first: the switch to it is a jump of its own */
+                unsigned before = perf_jumps();
+                perf_audio_output(b, 48000);
+                seg[k] = perf_jumps() - before;
+            }
+            song_default();
+            engine_init(RATE);
+            engine_set_playing(1);
+            for (int i = 0; i < 4; i++) /* settle */
+                engine_render(b, 512), perf_audio_output(b, 512);
+            unsigned before = perf_jumps();
+            for (int i = 0; i < 20 * RATE / 512; i++) {
+                engine_render(b, 512);
+                perf_audio_output(b, 512);
+            }
+            seg[4] = perf_jumps() - before;
+            engine_set_playing(0);
+            printf("perflog jumps: tone %u, tone with a click %u, square %u, crushed %u, 20 s of the drone %u "
+                   "(want 0 1 0 0 0: %d)\n", seg[0], seg[1], seg[2], seg[3], seg[4],
+                   seg[0] == 0 && seg[1] == 1 && seg[2] == 0 && seg[3] == 0 && seg[4] == 0);
+            song_default();
+            engine_init(RATE);
+        }
 
         /* the Brick Pro's left stick: bowing by hand, lighter or harder, and
          * a bend of two semitones */

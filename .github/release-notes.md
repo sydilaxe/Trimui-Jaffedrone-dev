@@ -14,6 +14,13 @@ from **Applications → Archive Manager**, then open **Applications → Jaffedro
   CUTOFF, MOTION, MASTER). A CC acts as a press would, and is saved with the song.
 - `docs/MIDI.md` is the MIDI implementation chart.
 
+**New: deeper logs, to find clicks and tune the app**
+- `log.txt` adds the performance lines the other TrimUI apps have: **STAT** and **PROC** every 10 s (audio load,
+  dropouts, late calls, clicks, cpu by thread, memory, faults, how often the audio thread was preempted) and a
+  **JUMP** line for each click made in the app.
+- `sysinfo.txt` records the sound path and PipeWire's settings, and every 10 s its nodes' xrun counts.
+- The output is held to full scale, so a sample past it can never wrap round into a click.
+
 **Fix: the screen going black after the start-up screen**
 - The picture is now sent to the screen opaque. Its pixels went out with their alpha (transparency) at 0,
   which TrimUI OS ignores but MustardOS's display shows, so on MustardOS nothing the app drew was visible:
