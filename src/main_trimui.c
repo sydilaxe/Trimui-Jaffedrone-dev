@@ -198,7 +198,9 @@ static void audio_hotplug(void)
  * reports a reset, or drawing fails, and the screen stays black while the
  * app runs on. So the texture (or the renderer and texture) is made again
  * when SDL says so, when drawing fails, and once after the screen wake has
- * had time to finish. Each is logged. */
+ * had time to finish. Each is logged.
+ * The picture is sent opaque (alpha 255): on MustardOS the display shows
+ * the screen's alpha, and the page's colours have none of their own. */
 static SDL_Window *win;
 static SDL_Renderer *ren;
 static SDL_Texture *tex;
@@ -216,6 +218,8 @@ static void make_texture(void)
 {
     tex = ren ? SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H)
               : NULL;
+    if (tex) /* copied as it is, alpha and all (the pixels are opaque) */
+        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
 }
 
 static void screen_rebuild(int renderer, const char *why)
@@ -235,8 +239,13 @@ static void screen_rebuild(int renderer, const char *why)
           tex ? "" : ": failed, ", tex ? "" : SDL_GetError());
 }
 
-static void present(const uint32_t *fb, const SDL_Rect *dst, int rot)
+static void present(uint32_t *fb, const SDL_Rect *dst, int rot)
 {
+    /* opaque: the page is drawn with the alpha byte left at 0, and SDL copies
+     * it to the screen as it is. MustardOS's display shows the screen's
+     * alpha, so a picture with alpha 0 is black there (TrimUI OS ignores it). */
+    for (int i = 0; i < SCREEN_W * SCREEN_H; i++)
+        fb[i] |= 0xff000000u;
     if (screen_reset) {
         screen_rebuild(screen_reset == 2, "SDL reset it");
         screen_reset = 0;
