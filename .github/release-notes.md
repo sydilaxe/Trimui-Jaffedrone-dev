@@ -7,6 +7,13 @@ Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Ap
 `Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
 from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
 
+**New: the important settings by MIDI CC**
+- The voice, engine and play settings that matter most each have a MIDI CC, on any channel: CC 2 chooses the
+  string, 14-29 set its voice (NOTE, LEVEL, BOW, DECAY, BRIGHT ... ON), 85-90 the engine (ENGINE, EXCITER,
+  BORE, SCALE, ROOT, BPM), 102-112 the string's rings, 113-119 the play (PLAY MODE, CHANGES, DRIFT, GLIDE,
+  CUTOFF, MOTION, MASTER). A CC acts as a press would, and is saved with the song.
+- `docs/MIDI.md` is the MIDI implementation chart.
+
 **Fix: the screen going black after the start-up screen**
 - The picture is now sent to the screen opaque. Its pixels went out with their alpha (transparency) at 0,
   which TrimUI OS ignores but MustardOS's display shows, so on MustardOS nothing the app drew was visible:
