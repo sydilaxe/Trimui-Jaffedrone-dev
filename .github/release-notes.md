@@ -7,6 +7,13 @@ Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Ap
 `Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
 from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
 
+**New: the important settings by MIDI CC**
+- The voice, engine and play settings that matter most each have a MIDI CC, on any channel: CC 2 chooses the
+  string, 14-29 set its voice (NOTE, LEVEL, BOW, DECAY, BRIGHT ... ON), 85-90 the engine (ENGINE, EXCITER,
+  BORE, SCALE, ROOT, BPM), 102-112 the string's rings, 113-119 the play (PLAY MODE, CHANGES, DRIFT, GLIDE,
+  CUTOFF, MOTION, MASTER). A CC acts as a press would, and is saved with the song.
+- `docs/MIDI.md` is the MIDI implementation chart.
+
 **New: deeper logs, to find clicks and tune the app**
 - `log.txt` adds the performance lines the other TrimUI apps have: **STAT** and **PROC** every 10 s (audio load,
   dropouts, late calls, clicks, cpu by thread, memory, faults, how often the audio thread was preempted) and a

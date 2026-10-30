@@ -80,6 +80,10 @@ jobs:
           # USB MIDI and the Brick Pro's sticks
           grep -q "midi key: A3 -> .*(want 220: 1)" $r
           grep -q "^midi voices: .*muted skipped (1): 1$" $r
+          grep -q "^midi cc: .*not queued: 1$" $r
+          # the MIDI chart's CC table is the one the app uses
+          build/jd_test --midi-chart > cc.md
+          sed -n '/<!-- cc table -->/,/<!-- end cc table -->/p' docs/MIDI.md | sed '1d;$d' | diff cc.md -
           grep -q "midi clock in: START plays 1, 120 BPM -> .* (1), STOP stops 1" $r
           grep -q "^perflog jumps: .*(want 0 1 0 0 0: 1)" $r
           grep -q "midi clock out: START 1, .*(want 192: 1), STOP 1" $r

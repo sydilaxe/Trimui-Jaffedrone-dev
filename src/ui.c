@@ -432,6 +432,8 @@ static void nav(int dx, int dy)
     sel_cell[page] = best;
 }
 
+static void set_cell(const Cell *c, const ParamDef *d, int *v, int nv);
+
 static void adjust(int dir, int repeats)
 {
     layout(page);
@@ -452,8 +454,17 @@ static void adjust(int dir, int repeats)
         fam = (fam + dir + 3) % 3;
         nv = fam == 0 ? 0 : fam == 1 ? 1 : VOICE_PERC(0);
     }
+    set_cell(c, d, v, nv);
+}
+
+/* a cell to a new value, with all that goes with it (as a press would): the
+ * log, key lock, the scale, the progression, the tempo, the play mode */
+static void set_cell(const Cell *c, const ParamDef *d, int *v, int nv)
+{
+    (void)d;
     if (nv == *v)
         return;
+    changed = 1;
     {
         char nm[32];
         if (c->kind == CK_S)
@@ -1782,4 +1793,104 @@ void ui_draw(uint32_t *fb)
     }
     draw_footer();
     draw_toast();
+}
+
+/* ------------------------------------------------------------- MIDI CC */
+
+/* The important voice, engine and play settings have a MIDI CC, all on one
+ * channel (any channel is heard). The voice and ring CCs act on the selected
+ * string, as the buttons do; CC 2 selects it. The numbers are ones MIDI
+ * leaves free, in blocks: 14-29 the voice, 85-90 the engine, 102-112 the
+ * rings, 113-119 the play. A CC's 0-127 spans the setting's range. The fixed
+ * CCs keep their meaning: 1 bow, 64 sustain, 74 tone, 91 space, 120 / 123
+ * all off. */
+enum { CCK_STRING = 100, CCK_ON }; /* kinds beyond the cells' */
+typedef struct {
+    unsigned char cc, kind, b;
+} CcMap;
+static const CcMap cc_map[] = {
+    {2, CCK_STRING, 0},
+    {3, CK_G, GP_MODE},        {9, CK_G, GP_SUB},
+    /* the voice: the selected string */
+    {14, CK_S, SP_NOTE},       {15, CK_S, SP_FINE},     {16, CK_S, SP_LEVEL},    {17, CK_S, SP_BOW},
+    {18, CK_S, SP_DECAY},      {19, CK_S, SP_BRIGHT},   {20, CK_S, SP_FOLD},     {21, CK_S, SP_STIFF},
+    {22, CK_S, SP_POS},        {23, CK_S, SP_BUZZ},     {24, CK_S, SP_HARM},     {25, CK_S, SP_VOICE},
+    {26, CK_S, SP_PAN},        {27, CK_S, SP_LATK},     {28, CK_S, SP_RELEASE},  {29, CCK_ON, 0},
+    /* the engine */
+    {85, CK_G, GP_ENGINE},     {86, CK_G, GP_EXCITE},   {87, CK_G, GP_MATERIAL}, {88, CK_G, GP_SCALE},
+    {89, CK_G, GP_ROOT},       {90, CK_G, GP_BPM},
+    /* the selected string's rings */
+    {102, CK_S, RING_P(RING_PLUCK, 0)}, {103, CK_S, RING_P(RING_PLUCK, 1)}, {104, CK_S, RING_P(RING_PLUCK, 2)},
+    {105, CK_S, RING_P(RING_PLUCK, 3)}, {106, CK_S, RING_P(RING_BOW, 0)},   {107, CK_S, RING_P(RING_BOW, 1)},
+    {108, CK_S, RING_P(RING_BOW, 2)},   {109, CK_S, RING_P(RING_BOW, 3)},   {110, CK_S, SP_RATE},
+    {111, CK_S, SP_PCHANCE},   {112, CK_S, SP_BCHANCE},
+    /* the play */
+    {113, CK_G, GP_PLAYMODE},  {114, CK_G, GP_CHANGES}, {115, CK_G, GP_DRIFT},   {116, CK_G, GP_GLIDE},
+    {117, CK_G, GP_CUTOFF},    {118, CK_G, GP_MOTION},  {119, CK_G, GP_MASTER},
+};
+#define NCC_MAP ((int)(sizeof cc_map / sizeof cc_map[0]))
+
+static const CcMap *cc_find(int cc)
+{
+    for (int i = 0; i < NCC_MAP; i++)
+        if (cc_map[i].cc == cc)
+            return &cc_map[i];
+    return NULL;
+}
+
+int ui_midi_cc(int ch, int cc, int v)
+{
+    (void)ch;
+    const CcMap *m = cc_find(cc);
+    if (!m)
+        return 0;
+    v = v < 0 ? 0 : v > 127 ? 127 : v;
+    if (m->kind == CCK_STRING) {
+        int s = v * NS / 128;
+        if (s != cur_s) {
+            cur_s = s;
+            say("STRING %d", s + 1);
+        }
+        return 1;
+    }
+    if (m->kind == CCK_ON) {
+        int on = v >= 64;
+        if (song.on[cur_s] != on) {
+            song.on[cur_s] = on;
+            changed = 1;
+            say("STRING %d %s", cur_s + 1, on ? "ON" : "MUTED");
+        }
+        return 1;
+    }
+    Cell c;
+    memset(&c, 0, sizeof c);
+    c.kind = (char)m->kind, c.a = (char)cur_s, c.b = (char)m->b;
+    const ParamDef *d;
+    int *p = cell_ref(&c, &d);
+    set_cell(&c, d, p, d->min + ((d->max - d->min) * v + 63) / 127);
+    return 1;
+}
+
+/* the implementation chart's CC table, as Markdown */
+void ui_midi_chart(FILE *f)
+{
+    fprintf(f, "| CC | Setting | Range |\n|---|---|---|\n");
+    for (int i = 0; i < NCC_MAP; i++) {
+        const CcMap *m = &cc_map[i];
+        if (m->kind == CCK_STRING) {
+            fprintf(f, "| %d | STRING: the one the string CCs act on | 0-25 1, 26-50 2, 51-76 3, 77-101 4, "
+                       "102-127 5 |\n", m->cc);
+            continue;
+        }
+        if (m->kind == CCK_ON) {
+            fprintf(f, "| %d | String ON | 0-63 muted, 64-127 on |\n", m->cc);
+            continue;
+        }
+        Cell c;
+        memset(&c, 0, sizeof c);
+        c.kind = (char)m->kind, c.b = (char)m->b;
+        const ParamDef *d;
+        cell_ref(&c, &d);
+        fprintf(f, "| %d | %s%s | %d to %d |\n", m->cc, m->kind == CK_S ? "String " : "", d->name, d->min, d->max);
+    }
 }

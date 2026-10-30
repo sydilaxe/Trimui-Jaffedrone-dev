@@ -23,6 +23,7 @@
  *   CC64           sustain
  *   CC74           TONE, darker / brighter;  CC91 more / less reverb
  *   CC120, CC123   everything let go
+ *   other CCs      the important settings (ui_midi_cc; see docs/MIDI.md)
  *   clock          the tempo follows it; START, CONTINUE, STOP and song
  *                  position start, stop and place the drone
  * Out, to every port: clock (24 a quarter note), START and STOP, while the
@@ -39,6 +40,9 @@ void midi_stop(void);
 void midi_set_latency(float seconds); /* from the engine's position to the sound heard */
 /* messages for the screen ("MIDI: <device>"), main thread */
 int midi_take_notice(char *buf, int n);
+/* the next CC that isn't one of the fixed ones above (for ui_midi_cc), main
+ * thread; 0 when there's none */
+int midi_take_cc(int *ch, int *cc, int *v);
 
 /* the parser and its actions without the thread or devices, for the test
  * harness: bytes in, as if from a port, at a time in microseconds */
