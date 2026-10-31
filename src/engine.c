@@ -669,6 +669,7 @@ typedef struct {
     float jet[2048];
     int jw, chiff_n;
     float dcx, dcy, lx1, lx2, lz1, lz2;
+    float odx, ody; /* the wind voice's sound, kept free of DC */
     float tg, chiff, pr, vph, gr_lp, nlp, frph, fr_amp;
     float fl_env, fl_ph;     /* flutter tongue: how deep the tongue's roll is now, and its phase */
     float art_t, art_amp; /* a tongued note: its time (samples, <0 idle) and strength */
@@ -1714,9 +1715,17 @@ static float lfo_value(int l, double pos16)
  * The material sets the losses, a little wall dispersion, and the body. */
 /* found by sweeping each against pitch and stability (jd_test checks them):
  * the jets' share of the loss filter's delay, the lips' opening gain and
- * rest, the flute and bansuri jet lengths, the jets' peak breath and noise */
-static const float jet_lpfac = 0.4f, lip_gain = 10.f, lip_rest = 0.3f, jet_ratio_f = 0.30f, jet_ratio_b = 0.34f,
-                   jet_loop = 1.f, jet_pmax = 0.85f, jet_air = 0.5f;
+ * rest, the jet length (of the bore), the jets' peak breath and noise, and
+ * where the jets' and the double reed's bores are damped (in multiples of
+ * the note) with the double reed's bore length to keep it in tune.
+ * The jet x(x^2-1) has no gain at a breath of 0.58: the peak breath must
+ * reach well past it for the jet to drive the bore, and the damping keeps
+ * that strong jet on the note instead of a high mode. */
+#ifndef JET_CAP
+#define JET_CAP 1.2f
+#endif
+static const float jet_lpfac = 0.4f, lip_gain = 10.f, lip_rest = 0.3f, jet_ratio = 0.5f, jet_loop = 1.f,
+                   jet_pmax = 1.5f, jet_cap = JET_CAP, jet_air = 0.5f, jet_damp = 3.f, dbl_damp = 3.f, dbl_loop = 1.04f;
 typedef struct {
     float lp_scale, rho, disp;
     float f[NMODE], q[NMODE];
@@ -1733,7 +1742,7 @@ typedef struct {
     int ex, reg;
     float target_period, tr_k; /* the ear: the period wanted, its lowpass */
     float base, air, lpk, rho, disp, emb, vib, growl;
-    float pmax, att_k, art_k, art_hold, bow_k, hand_k, hand_rel, out_g;
+    float pmax, bp_cap, att_k, art_k, art_hold, bow_k, hand_k, hand_rel, out_g, odc_r;
     float roff, rslope;                  /* reeds */
     int latch;                           /* LATCH: the latch breathes like the hand */
     float lb0, la1, la2, lgain;          /* lips */
@@ -1797,18 +1806,19 @@ static void wind_tick(String *st, const WindVoice *v, float inj, float *py, floa
     st->vph += v->vib_inc;
     if (st->vph >= 1.f)
         st->vph -= 1.f;
-    float p = st->pr * (1.f + v->vib * 0.07f * sin01(st->vph));
+    float p = st->pr * (1.f + v->vib * 0.07f * sin01(st->vph)), flut = 1.f;
     if (st->fl_env > 1e-3f) { /* flutter tongue: the air cut about 24 times a second, the roll slowing as it fades */
         st->fl_ph += (18.f + 8.f * st->fl_env) / sr;
         if (st->fl_ph >= 1.f)
             st->fl_ph -= 1.f;
         float cut = 0.5f + 0.5f * sin01(st->fl_ph); /* 0 .. 1: the tongue against the palate */
-        p *= 1.f - 0.85f * st->fl_env * cut * cut;
+        flut = 1.f - 0.85f * st->fl_env * cut * cut;
+        p *= flut;
         st->fl_env *= 1.f - 2.2f / sr; /* the roll fades over about half a second */
     }
     st->gr_lp += (fnoise() - st->gr_lp) * 0.004f; /* growl: a slow rasp, rough at a lip attack */
     p *= 1.f + (v->growl + (v->ex == EX_LIP ? 0.5f * atk : 0.f)) * 4.f * st->gr_lp;
-    float bp = v->pmax * (1.f - exp_neg(-2.5f * fmaxf(p, 0.f)));
+    float bp = fminf(v->pmax * (1.f - exp_neg(-2.5f * fmaxf(p, 0.f))), v->bp_cap);
     st->nlp += (fnoise() - st->nlp) * 0.55f;
     bp *= 1.f + st->nlp * v->air * (1.f + 5.f * atk); /* the attack is breathy */
     float ch = 0.f;
@@ -1882,11 +1892,16 @@ static void wind_tick(String *st, const WindVoice *v, float inj, float *py, floa
         pd = pd * (pd * pd - 1.f);
         pd = pd > 1.f ? 1.f : pd < -1.f ? -1.f : pd;
         out = pd + v->end_refl * b;
-        o = out * v->out_g;
+        /* a flutter tongue stops the jet itself, not only the breath behind
+         * it: the bore would ring on through each cut */
+        o = out * v->out_g * flut;
         break;
     }
     }
-    if (v->ex != EX_REED && v->ex != EX_DOUBLE) { /* keep the loop free of DC */
+    /* keep the loop free of DC. A single reed's bore turns its reflection
+     * over, so no DC builds; a double reed's doesn't, and without this its
+     * loop fills with DC and the reed sticks */
+    if (v->ex != EX_REED) {
         float d = out - st->dcx + 0.995f * st->dcy;
         st->dcx = out;
         st->dcy = d;
@@ -1913,8 +1928,14 @@ static void wind_tick(String *st, const WindVoice *v, float inj, float *py, floa
         }
         st->tr_prev = z;
     }
+    /* what is heard carries no DC: a jet's steady breath and a double
+     * reed's loop hold a large offset under a small tone, which the
+     * leveller would take for loudness and turn the whole mix down for */
+    float od = o - st->odx + v->odc_r * st->ody;
+    st->odx = o;
+    st->ody = od;
     *py = y;
-    *po = o;
+    *po = od;
 }
 
 /* the wind voice's settings for this sub-block (pitch dependent) and its
@@ -2251,6 +2272,10 @@ static void wind_setup(WindVoice *v, String *st, const int *P, float hz, float s
     v->air = 0.015f + 0.2f * d * d * d * d; /* breath is never perfectly still */
     float br = P[SP_BRIGHT] / 100.f;
     v->lpk = fminf(0.95f, (0.25f + 0.7f * powf(br, 1.2f)) * m->lp_scale);
+    if (ex == EX_FLUTE || ex == EX_RECORDER || ex == EX_BANSURI) /* the jets sound an octave up */
+        v->lpk = fminf(v->lpk, 1.f - expf(-6.2831853f * jet_damp * 2.f * hz * v->reg / sr));
+    if (ex == EX_DOUBLE && v->reg == 1)
+        v->lpk = fminf(v->lpk, 1.f - expf(-6.2831853f * dbl_damp * hz / sr));
     if (ex == EX_REED && v->reg == 1) {
         /* a clarinet keeps to its low register unless its register key is
          * opened: damp the loop above the note so the twelfth can't take
@@ -2273,16 +2298,19 @@ static void wind_setup(WindVoice *v, String *st, const int *P, float hz, float s
     v->vib_inc = (4.6f + 0.3f * (float)(st - str)) / sr; /* cycles a sample */
     static const float pmax[NEXCITE] = {1.0f, 0.95f, 0.8f, 1.25f, 1.0f, 1.1f, 1.2f};
     static const float att[NEXCITE] = {0.015f, 0.02f, 0.02f, 0.012f, 0.04f, 0.01f, 0.015f};
-    static const float outg[NEXCITE] = {1.0f, 1.0f, 1.0f, 0.3f, 0.8f, 0.3f, 0.3f};
+    static const float outg[NEXCITE] = {1.0f, 1.0f, 1.8f, 0.3f, 0.8f, 0.3f, 0.3f};
     v->pmax = pmax[ex];
+    v->bp_cap = 1e9f;
     if (ex == EX_FLUTE || ex == EX_RECORDER || ex == EX_BANSURI) {
         /* a gentle jet locks to the fundamental; some turbulence is always
          * there to start it */
         v->pmax = jet_pmax;
+        v->bp_cap = jet_cap; /* past it the jet clips and has no gain: a hard push would choke it */
         v->air = 0.01f + v->air * jet_air;
     }
     v->att_k = 1.f - expf(-1.f / (att[ex] * sr));
     v->out_g = outg[ex];
+    v->odc_r = 1.f - 6.2831853f * 10.f / sr; /* the DC blocker's corner: 10 Hz */
     if (ex == EX_BANSURI)
         v->air += 0.06f; /* bamboo breathes */
     if (ex == EX_RECORDER)
@@ -2306,7 +2334,7 @@ static void wind_setup(WindVoice *v, String *st, const int *P, float hz, float s
         v->rslope = -0.3f + 0.2f * v->emb;
         break;
     case EX_DOUBLE:
-        loop = sr / (f * v->reg);
+        loop = dbl_loop * sr / (f * v->reg);
         v->roff = 0.6f;
         v->rslope = -0.6f + 0.35f * v->emb;
         break;
@@ -2320,8 +2348,8 @@ static void wind_setup(WindVoice *v, String *st, const int *P, float hz, float s
                 * bore two periods long whose second mode the jet locks to */
         f *= 2.f;
         loop = jet_loop * sr / (f * v->reg); /* REGISTER: a shorter bore, as by cross-fingering */
-        float ratio = ex == EX_RECORDER ? 0.26f : ex == EX_BANSURI ? jet_ratio_b : jet_ratio_f;
-        ratio *= 1.f - 0.35f * v->emb;
+        /* EMBOUCH shortens the jet: the note bends up, under a semitone */
+        float ratio = jet_ratio * (1.f - 0.15f * v->emb);
         v->jetD = fminf(fmaxf(loop * ratio, 2.f), 2040.f);
         v->jet_refl = ex == EX_BANSURI ? 0.55f : ex == EX_RECORDER ? 0.45f : 0.5f;
         v->end_refl = ex == EX_BANSURI ? 0.45f : 0.5f;
@@ -2648,7 +2676,7 @@ void engine_voices(EngineBlock *b, int frames)
                 st->voice_was = song.sp[s][SP_VOICE];
                 memset(st->buf, 0, sizeof st->buf);
                 memset(st->jet, 0, sizeof st->jet);
-                st->lp = st->env = st->dcx = st->dcy = st->lx1 = st->lx2 = st->lz1 = st->lz2 = 0.f;
+                st->lp = st->env = st->dcx = st->dcy = st->odx = st->ody = st->lx1 = st->lx2 = st->lz1 = st->lz2 = 0.f;
                 st->tg = st->pr = st->chiff = st->corr = st->last_y = st->gain = 0.f;
                 st->ap[0][0] = st->ap[0][1] = st->ap[1][0] = st->ap[1][1] = 0.f;
                 st->burst = 0;
