@@ -54,6 +54,7 @@ static uint64_t now_us(void)
 
 static volatile sig_atomic_t got_signal;
 static void on_signal(int s) { got_signal = s; }
+static int sdl_quit; /* the system asked SDL to close the app */
 
 static int env_int(const char *name, int def)
 {
@@ -65,6 +66,9 @@ static int env_int(const char *name, int def)
 
 static SDL_AudioDeviceID dev;
 static char dev_name[128]; /* "" is the system's own output */
+/* a device that would not open (on MustardOS PipeWire can hold a USB card):
+ * not tried again until it is unplugged, as each try stops the sound */
+static char failed_out[128];
 static int rate, bufsz;
 static void lock(void) { SDL_LockAudioDevice(dev); }
 static void unlock(void) { SDL_UnlockAudioDevice(dev); }
@@ -181,7 +185,12 @@ static int open_output(const char *name, int start)
      * for a device that wants something else */
     dev = SDL_OpenAudioDevice(name, 0, &want, &have, 0);
     if (!dev && name) {
-        jdlog("audio: could not open %s (%s), using the speaker", name, SDL_GetError());
+        const char *err = SDL_GetError();
+        jdlog("audio: could not open %s (%s), using the speaker%s", name, err,
+              strcasestr(err, "busy") ? "; something else has it (PipeWire, on MustardOS: see sysinfo.txt), "
+                                        "it is tried again once unplugged and plugged in"
+                                      : "");
+        snprintf(failed_out, sizeof failed_out, "%s", name);
         name = NULL;
         dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     }
@@ -190,6 +199,8 @@ static int open_output(const char *name, int start)
         return 0;
     }
     snprintf(dev_name, sizeof dev_name, "%s", name ? name : "");
+    if (name)
+        failed_out[0] = 0;
     clock0_us = made_us = 0;
     /* which way the sound goes (on MustardOS: pipewire, or alsa through
      * PipeWire's ALSA plugin), and what the device took */
@@ -204,18 +215,33 @@ static int open_output(const char *name, int start)
     return 1;
 }
 
-/* a USB device came or went: follow it (unless JD_AUDIO names one) */
+static int output_listed(const char *name)
+{
+    int n = SDL_GetNumAudioDevices(0);
+    for (int i = 0; i < n; i++) {
+        const char *dn = SDL_GetAudioDeviceName(i, 0);
+        if (dn && !strcmp(dn, name))
+            return 1;
+    }
+    return 0;
+}
+
+/* a USB device came or went: follow it (unless JD_AUDIO names one). SDL
+ * sends an event for each device at the start too: a device that would not
+ * open is left alone until it has gone from the list. */
 static void audio_hotplug(void)
 {
     const char *want = getenv("JD_AUDIO");
     if (want && *want && strcasecmp(want, "auto"))
         return;
+    if (failed_out[0] && !output_listed(failed_out))
+        failed_out[0] = 0;
     const char *name = pick_output();
-    if (!strcmp(name ? name : "", dev_name))
+    if (!strcmp(name ? name : "", dev_name) || (name && !strcmp(name, failed_out)))
         return;
     open_output(name, 1);
     char msg[48];
-    snprintf(msg, sizeof msg, "AUDIO: %.38s", name ? name : "SPEAKER");
+    snprintf(msg, sizeof msg, "AUDIO: %.38s", dev_name[0] ? dev_name : "SPEAKER");
     ui_notice(msg);
 }
 
@@ -752,7 +778,7 @@ static void on_event(const SDL_Event *e)
         break;
     }
     case SDL_QUIT:
-        got_signal = 1;
+        sdl_quit = 1;
         break;
     }
 }
@@ -784,6 +810,31 @@ static void screen_wake(void)
     }
     if (p > 0)
         waitpid(p, NULL, 0);
+}
+
+/* ------------------------------------------------------------- sleep */
+
+/* The time the system has spent asleep: CLOCK_MONOTONIC stops while it
+ * sleeps, CLOCK_BOOTTIME doesn't. A sleep leaves a gap in the sound that
+ * the logs count as a dropout; the SLEEP line says it was the sleep. */
+static int64_t slept_us(void)
+{
+    struct timespec b, m;
+    clock_gettime(CLOCK_BOOTTIME, &b);
+    clock_gettime(CLOCK_MONOTONIC, &m);
+    return (int64_t)(b.tv_sec - m.tv_sec) * 1000000 + (b.tv_nsec - m.tv_nsec) / 1000;
+}
+
+static void check_sleep(void)
+{
+    static int64_t was = -1;
+    int64_t s = slept_us();
+    if (was >= 0 && s - was > 1000000) {
+        jdlog_set_clock(now_us() / 1000);
+        jdlog("system: slept %.0f s (a dropout logged now is the sleep, not a crackle)", (s - was) / 1e6);
+        perf_log("SLEEP", "the system slept %.0f s: a dropout logged now is the sleep, not a crackle", (s - was) / 1e6);
+    }
+    was = s;
 }
 
 /* ------------------------------------------------------------- cores */
@@ -949,7 +1000,9 @@ int main(int argc, char **argv)
     const char *wake_cmd = getenv("JD_SCREEN_WAKE");
     int screen_rebuild_on = env_int("JD_SCREEN_REBUILD", 1) && wake_cmd && *wake_cmd;
     static uint32_t fb[SCREEN_W * SCREEN_H];
-    while (!ui_quit_requested() && !got_signal) {
+    check_sleep();
+    while (!ui_quit_requested() && !got_signal && !sdl_quit) {
+        check_sleep();
         SDL_Event e;
         while (SDL_PollEvent(&e))
             on_event(&e);
@@ -1017,11 +1070,21 @@ int main(int argc, char **argv)
         SDL_Delay(2);
     }
 
+    /* why it closed: MENU, or the system (a signal, or SDL told to quit) */
+    jdlog_set_clock(now_us() / 1000);
+    char why[64];
+    if (ui_quit_requested())
+        snprintf(why, sizeof why, "MENU");
+    else if (got_signal)
+        snprintf(why, sizeof why, "the system sent signal %d (%s)", (int)got_signal, strsignal(got_signal));
+    else
+        snprintf(why, sizeof why, "the system closed the app (SDL quit)");
+    jdlog("quit: %s", why);
+    perf_log("QUIT", "%s", why);
     song_save(SAVE_PATH);
 #ifdef JD_BRICKPRO
     leds_close();
 #endif
-    jdlog_set_clock(now_us() / 1000);
     midi_stop();
     jdlog_close();
     perf_close();
