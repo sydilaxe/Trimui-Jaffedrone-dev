@@ -18,6 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: The README shows the source's version
+        run: |
+          # README's "Latest release" line and the version in the source move together
+          v=$(make -s version)
+          grep -qF "**Latest release:** [v$v](../../releases/tag/v$v)" README.md ||
+            { echo "::error::README.md's Latest release line isn't v$v, the version in the source"; exit 1; }
       - name: Build
         run: |
           # generated files are committed; keep make from regenerating them
@@ -150,6 +156,13 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: The tag is the version in the source
+        run: |
+          # the app's info screen and the manual show JD_VERSION; set it to the new version first
+          TAG="${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}"
+          v=$(make -s version)
+          test "${TAG#v}" = "$v" ||
+            { echo "::error::tag $TAG isn't JD_VERSION in src/engine.h ($v): set it, run make manual, update README.md, then tag"; exit 1; }
       - uses: actions/download-artifact@v4
         with:
           name: Jaffedrone-trimui
