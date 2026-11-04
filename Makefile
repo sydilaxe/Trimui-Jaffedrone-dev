@@ -128,7 +128,11 @@ install: build/$(DEVICE)/jaffedrone $(APP)/icon.png $(APP)/splash.jdi
 clean:
 	rm -rf build
 
-.PHONY: all test bench package install clean manual
+# the app's version, JD_VERSION in src/engine.h
+version:
+	@sed -n 's/^#define JD_VERSION "\([^"]*\)".*/\1/p' src/engine.h
+
+.PHONY: version all test bench package install clean manual
 
 # host-side wifi sync interop check (run alongside HI5's)
 build/jd_synctest: $(SRC) src/main_synctest.c $(HDR)

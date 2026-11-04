@@ -8,7 +8,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define JD_VERSION "0.13"
+/* shown on the info screen and the manual; a release's tag must match it (CI checks) */
+#define JD_VERSION "0.4.2"
 
 #define NS 5
 #define NSP 28 /* params per string */
