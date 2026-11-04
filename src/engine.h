@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 /* shown on the info screen and the manual; a release's tag must match it (CI checks) */
-#define JD_VERSION "0.4.2"
+#define JD_VERSION "0.4.3"
 
 #define NS 5
 #define NSP 28 /* params per string */
