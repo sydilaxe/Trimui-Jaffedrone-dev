@@ -7,6 +7,9 @@ Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Ap
 `Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
 from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
 
+**New in 0.4.3**
+- The info screen and the manual show the app's real version. Earlier releases said 0.13.
+
 **New: both stick rings light up, and point**
 - Each stick now has its own ring: the left ring for the left stick, the right ring for the right one (only the
   left ring lit before). The ring's corners light toward where the stick points, brighter the further it goes:
