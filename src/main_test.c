@@ -2391,7 +2391,7 @@ int main(int argc, char **argv)
                    d[20 + 7] == LINK_PROTOCOL && d[29 + 2] == 0x01 && d[29 + 3] == 2 && d[45 + 4] == 0 &&
                    d[45 + 5] == 2 && sn > 16;
         char fs[600], fp[800];
-        snprintf(fs, sizeof fs, "%s/fakeusb", test_dir);
+        snprintf(fs, sizeof fs, "%s.fakeusb", test_dir);
         mkdir(fs, 0755);
         const char *const tree[][2] = {
             {"1-1.3/idVendor", "1d6b"},           {"1-1.3/idProduct", "0104"},
