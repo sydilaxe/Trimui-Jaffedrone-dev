@@ -30,6 +30,7 @@ export LD_LIBRARY_PATH="/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH"
 #   JD_MIDI=0          no USB MIDI
 #   JD_MIDI_NOTES=CHANNELS   MIDI channels 1-5 play strings 1-5 (default: notes spread over the strings)
 #   JD_MIDI_CLOCK=0    send no MIDI clock;  JD_MIDI_FOLLOW=0  ignore MIDI clock coming in
+#   JD_LINK=0          leave the bottom USB port alone (no clock link from a leading Brick)
 #   JD_BEND=7          Brick Pro: the left stick bends up to 7 semitones (2 by default)
 #   JD_STICK_REACH=80  Brick Pro: take a stick to reach 80% of the way until it shows it goes further (60)
 #   JD_LEDS=0          Brick Pro: leave the lights around the sticks alone

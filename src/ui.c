@@ -299,11 +299,12 @@ static void preset_load(int i)
 {
     char p[512];
     preset_path(i, p, sizeof p);
-    /* the Wi-Fi and output settings belong to the room, not the preset */
-    int keep[5] = {song.gp[GP_SYNC], song.gp[GP_OUTPUT], song.gp[GP_CLKSIDE], song.gp[GP_PPQN], song.gp[GP_PULSE]};
+    /* the Wi-Fi, output and MIDI clock settings belong to the room, not the preset */
+    int keep[7] = {song.gp[GP_SYNC], song.gp[GP_OUTPUT], song.gp[GP_CLKSIDE], song.gp[GP_PPQN], song.gp[GP_PULSE],
+                   song.gp[GP_MIDI], song.gp[GP_MIDISTART]};
     if (song_load(p)) {
         song.gp[GP_SYNC] = keep[0];
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < 6; k++)
             song.gp[GP_OUTPUT + k] = keep[1 + k];
         engine_set_bpm((float)song.gp[GP_BPM]);
         say("PRESET %d", i + 1);
@@ -383,6 +384,10 @@ static void layout(int pg)
         /* in the order the sound passes through them: AIR (at the instruments),
          * then delay, reverb and binaural */
         cell(4, MIX_FXC_Y, MIX_FXW - 8, 33, CK_F, 0, FX_AIR);
+        /* under AURA: the MIDI clock over USB, which way it goes and whether
+         * its START / STOP are followed */
+        cell(4, MIX_FXC_Y + 36, MIX_FXW - 8, 33, CK_G, 0, GP_MIDI);
+        cell(4, MIX_FXC_Y + 72, MIX_FXW - 8, 33, CK_G, 0, GP_MIDISTART);
         for (int c = 0; c < 3; c++)
             for (int p = 0; p < 3; p++)
                 cell((c + 1) * MIX_FXW + 4, MIX_FXC_Y + p * 36, MIX_FXW - 8, 33, CK_F, 0, c * 3 + p);
@@ -507,6 +512,14 @@ static void set_cell(const Cell *c, const ParamDef *d, int *v, int nv)
         say("%s", nv == MODE_MONO ? "MONO: ALL STRINGS FOLLOW STRING 1" : "CHORD: EACH STRING ITS OWN NOTE");
     if (c->kind == CK_G && c->b == GP_OUTPUT)
         say("%s", nv == OUT_MONO_CLOCK ? "MONO AUDIO + CLOCK OUT" : "STEREO OUT");
+    if (c->kind == CK_G && c->b == GP_MIDI) {
+        static const char *const what[NMIDIMODE] = {"SENDS CLOCK, FOLLOWS ONE COMING IN", "SENDS CLOCK ALWAYS",
+                                                    "FOLLOWS CLOCK ONLY", "NO CLOCK"};
+        static const char *const mn[NMIDIMODE] = {"AUTO", "SEND", "FOLLOW", "OFF"};
+        say("MIDI %s: %s", mn[nv], what[nv]);
+    }
+    if (c->kind == CK_G && c->b == GP_MIDISTART)
+        say("%s", nv ? "START/STOP IGNORED: THE CLOCK ONLY" : "START/STOP FOLLOWED");
     if (c->kind == CK_G && c->b == GP_PPQN)
         say("%d PPQN%s", clk_ppqn_value(nv), clk_ppqn_value(nv) == 2 ? ": POCKET OPERATOR / VOLCA" : clk_ppqn_value(nv) == 24 ? ": DIN SYNC" : "");
 }
@@ -1248,7 +1261,7 @@ static void draw_cells(void)
             on = 0; /* modes are for EQUAL */
         if (c->kind == CK_G && song.gp[GP_KEYLOCK] && (c->b == GP_SCALE || c->b == GP_ROOT || c->b == GP_MODALITY))
             on = 0; /* locked */
-        if (c->kind == CK_G && c->b > GP_OUTPUT && song.gp[GP_OUTPUT] != OUT_MONO_CLOCK)
+        if (c->kind == CK_G && c->b > GP_OUTPUT && c->b <= GP_PULSE && song.gp[GP_OUTPUT] != OUT_MONO_CLOCK)
             on = 0; /* no clock in stereo */
         if (c->kind == CK_S && c->b == SP_PAN && song.gp[GP_OUTPUT] == OUT_MONO_CLOCK)
             on = 0; /* mono + clock plays every voice from the centre */

@@ -13,7 +13,7 @@
 
 #define NS 5
 #define NSP 28 /* params per string */
-#define NGP 32 /* global params */
+#define NGP 34 /* global params */
 #define NPROG 16 /* chords in the progression memory */
 #define NPRESET 10
 #define NLFO 2
@@ -44,7 +44,7 @@ enum { RING_PLUCK, RING_BOW, NRING };
 enum { GP_MODE, GP_SCALE, GP_ROOT, GP_CHANGES, GP_BPM, GP_DRIFT, GP_GLIDE, GP_CUTOFF, GP_MASTER, GP_SYNC,
        GP_MOTION, GP_HOME, GP_COLOR, GP_EVOLVE, GP_CHANCE, GP_RELATE, GP_ENGINE, GP_EXCITE, GP_MATERIAL,
        GP_SUB, GP_SUBDIV, GP_SUBRES, GP_ATTACK, GP_RELEASE, GP_KEYLOCK, GP_MODALITY, GP_PROG, GP_PLAYMODE,
-       GP_OUTPUT, GP_CLKSIDE, GP_PPQN, GP_PULSE };
+       GP_OUTPUT, GP_CLKSIDE, GP_PPQN, GP_PULSE, GP_MIDI, GP_MIDISTART };
 /* GP_ATTACK / GP_RELEASE: how the drone fades in and out with START.
  * GP_KEYLOCK: for playing with others: the root, scale and mode stay put and
  * chords are tuned exactly. GP_MODALITY: the mode chords are drawn from in
@@ -103,6 +103,13 @@ enum { STUNE_SCALE, STUNE_CHORD, STUNE_CHORD9, STUNE_DRONE, STUNE_FIFTHS, NSTUNE
 enum { BODY_WOOD, BODY_GOURD, BODY_BRONZE, BODY_TUNED, BODY_METAL, BODY_CERAMIC, BODY_GLASS, NBODY };
 enum { MODE_MONO, MODE_CHORD };
 enum { SYNC_OFF, SYNC_AUTO, SYNC_LEAD, SYNC_FOLLOW, NSYNCMODE };
+/* GP_MIDI, the MIDI clock over USB (TrimUI): AUTO sends it and follows one
+ * that comes in, SEND always sends it and ignores one coming in, FOLLOW only
+ * follows, OFF neither (notes and CCs still come in). GP_MIDISTART: FOLLOW
+ * (0) the clock's START, STOP, CONTINUE and song position, or IGNORE (1)
+ * them and keep its tempo only (over the Brick link, its bar too). Both
+ * belong to the unit, like WIFI SYNC: loading a preset keeps them. */
+enum { MIDI_AUTO, MIDI_SEND, MIDI_FOLLOW, MIDI_OFF, NMIDIMODE };
 enum { LT_CUTOFF, LT_LEVEL, LT_PITCH, LT_BOW, LT_DELAY, LT_VERB, NLT };
 enum { SH_SINE, SH_TRI, SH_SAW, SH_SQUARE, SH_RANDOM, NSH };
 
