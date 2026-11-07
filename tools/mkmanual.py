@@ -488,7 +488,8 @@ def build(out):
                             "lit), how often chords change and how: MOTION, HOME, COLOR, CHANCE, RELATE, "
                             "EVOLVE, GLIDE, tempo, Wi-Fi sync and two LFOs.", SMALL),
                   Paragraph("<b>MIX</b>: each voice's LEVEL, PAN, GATE (RELEASE in LATCH) and AURA, the master, "
-                            "undertones (SUB), then AURA, delay, reverb and binaural.", SMALL)]],
+                            "undertones (SUB), then AURA, delay, reverb and binaural; under AURA, the MIDI "
+                            "clock's MIDI and START settings (see USB).", SMALL)]],
                 colWidths=(250, 250))]
     s += [PageBreak()]
 
@@ -626,19 +627,40 @@ def build(out):
                  ("Pitch bend", "two semitones"),
                  ("Mod wheel, pressure", "how hard the held strings are bowed"),
                  ("CC64", "sustain"), ("CC74", "TONE: darker / brighter"), ("CC91", "more / less reverb"),
-                 ("Clock", "the tempo follows it; START, CONTINUE, STOP and song position start, stop and "
-                           "place the drone")], widths=(34 * mm, None)),
+                 ("Clock", "the tempo follows it (fitted over the last four beats of ticks, so USB's jitter "
+                           "averages out), its phase held on the sound as it is heard; START, CONTINUE, STOP and "
+                           "song position start, stop and place the drone")], widths=(34 * mm, None)),
           Paragraph("MIDI out", H2),
           Paragraph("While the drone plays, and no clock is coming in, Jaffedrone sends MIDI clock (24 a "
                     "quarter note) with START and STOP to every MIDI port, timed to the sound as it is heard. "
                     "It leads a drum machine or sequencer over USB as MONO+CLK does over the headphone jack.", P),
+          Paragraph("MIDI and START (on MIX)", H2),
+          table([("MIDI", "which way the clock goes: AUTO (the default) sends it, and follows a clock that "
+                          "comes in instead; SEND always sends it and ignores one coming in; FOLLOW only "
+                          "follows; OFF neither (notes and CCs still come in)"),
+                 ("START", "FOLLOW (the default) starts, stops and places the drone with the clock's START, "
+                           "STOP, CONTINUE and song position; IGNORE follows the clock's tempo only, so you "
+                           "start and stop it yourself")], widths=(34 * mm, None)),
+          Paragraph("Both belong to the Brick, like WIFI SYNC: loading a preset keeps them.", SMALL),
+          Paragraph("Linking Bricks", H2),
+          Paragraph("Several Bricks play in time with one by cable, with no MIDI interface: the leader has a "
+                    "powered USB hub in its top port, and each follower plugs its bottom (charging) port into "
+                    "the hub with a data cable. The wiring decides who leads. Nothing to set up: Jaffedrone "
+                    "offers its bottom port as a \"TrimUI clock link\", and a leader sends its clock, START and "
+                    "STOP and where its sound is, about 50 times a second, so the followers sound together "
+                    "within a tenth of a millisecond, up to 250 BPM. A follower plugged in mid-song comes in "
+                    "at the leader's place; one set to START IGNORE keeps the leader's tempo and bar but "
+                    "starts and stops by hand. Columbia Street, HI5 and RadioScan link the same way, so any "
+                    "of them can lead. A leader can use USB audio and MIDI gear on the same hub; one that "
+                    "follows a drum machine's clock passes it on. <b>JD_LINK=0</b> in launch.sh leaves the "
+                    "bottom port alone.", P),
           Paragraph("Audio", H2),
           Paragraph("A USB sound card or DAC, once plugged in, takes the sound from the speaker and "
                     "headphones; unplugged, the sound comes back to them.", P),
           Paragraph("Settings", H2),
           Paragraph("In <b>Apps/Jaffedrone/launch.sh</b>: <b>JD_MIDI_NOTES=CHANNELS</b> lets MIDI channels 1-5 "
-                    "play strings 1-5; <b>JD_MIDI_CLOCK=0</b> sends no clock; <b>JD_MIDI_FOLLOW=0</b> ignores "
-                    "the clock coming in; <b>JD_AUDIO=internal</b> keeps the sound on the speaker and "
+                    "play strings 1-5; <b>JD_MIDI_CLOCK=0</b> never sends clock; <b>JD_MIDI_FOLLOW=0</b> never "
+                    "follows it, whatever MIDI is set to; <b>JD_AUDIO=internal</b> keeps the sound on the speaker and "
                     "headphones.", SMALL),
           PageBreak()]
     s += [Paragraph("Brick Pro: the sticks", H1),

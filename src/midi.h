@@ -24,14 +24,19 @@
  *   CC74           TONE, darker / brighter;  CC91 more / less reverb
  *   CC120, CC123   everything let go
  *   other CCs      the important settings (ui_midi_cc; see docs/MIDI.md)
- *   clock          the tempo follows it; START, CONTINUE, STOP and song
- *                  position start, stop and place the drone
+ *   clock          the tempo follows it (fitted over the last four beats of
+ *                  ticks), its phase held on the audio clock; START,
+ *                  CONTINUE, STOP and song position start, stop and place
+ *                  the drone (not with START set to IGNORE)
  * Out, to every port: clock (24 a quarter note), START and STOP, while the
  * drone plays and no clock is coming in. The clock goes out as the sound is
- * heard, the render-ahead time behind the engine.
+ * heard (the audio clock).
  *
+ * Which way the clock goes is the MIX page's MIDI setting (GP_MIDI: AUTO as
+ * above, SEND always, FOLLOW only, OFF neither). Bricks also follow one
+ * another over USB through a hub (link.h).
  * Settings, in launch.sh: JD_MIDI=0 turns it off, JD_MIDI_NOTES=CHANNELS,
- * JD_MIDI_CLOCK=0 sends no clock, JD_MIDI_FOLLOW=0 ignores clock in. */
+ * JD_MIDI_CLOCK=0 never sends clock, JD_MIDI_FOLLOW=0 never follows it. */
 #pragma once
 #include <stdint.h>
 
@@ -40,6 +45,11 @@ void midi_stop(void);
 void midi_set_latency(float seconds); /* from the engine's position to the sound heard */
 /* messages for the screen ("MIDI: <device>"), main thread */
 int midi_take_notice(char *buf, int n);
+int midi_following(void);    /* an outside clock leads */
+int midi_ports(void);        /* the MIDI ports open, links included */
+int midi_links(void);        /* Bricks following this one over the USB clock link (link.h) */
+/* a message for the screen, any thread (fmt with one %s) */
+void midi_notice(const char *fmt, const char *arg);
 /* the next CC that isn't one of the fixed ones above (for ui_midi_cc), main
  * thread; 0 when there's none */
 int midi_take_cc(int *ch, int *cc, int *v);
@@ -48,6 +58,11 @@ int midi_take_cc(int *ch, int *cc, int *v);
  * harness: bytes in, as if from a port, at a time in microseconds */
 void midi_feed(const uint8_t *b, int n, uint64_t now_us);
 void midi_reset(void);
+/* the leading Brick's position for the ones following over the link: its
+ * bytes (F0 7D 'T' 'L' ... F7, see midi.c), and when they are due (every 20 ms
+ * while the clock goes out; 0 when not) */
+int midi_link_pos(uint8_t *out, int max, double heard, double bpm, int playing);
+int midi_link_step(uint64_t now_us, uint8_t *out, int max);
 int midi_voice_of(int ch, int note); /* the voice a held key plays, or -1 */
 /* the clock out, stepped by hand: returns the bytes it would send now */
 int midi_clock_step(uint64_t now_us, uint8_t *out, int max);

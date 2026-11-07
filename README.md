@@ -334,7 +334,8 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
 - **SONG:** ten presets, the chord memory, key lock and mode, and the drone's attack and release.
 - **MIX:** each string's level, pan and gate with a meter, master, the sympathetic strings' level, the
   undertones (SUB, SUB DIV, SUB RES), then delay,
-  reverb and binaural.
+  reverb and binaural. Under AURA: the MIDI clock's **MIDI** and **START** settings (see
+  [USB: MIDI and audio](#usb-midi-and-audio)).
 
 ## Song: presets, chord memory, key
 
@@ -486,12 +487,34 @@ are found as they are plugged in, and a message names each one.
 - **Settings by CC:** the important voice, engine and play settings each have a CC, on any channel: CC 2
   chooses the string, 14-29 its voice, 85-90 the engine, 102-112 the string's rings, 113-119 the play.
   [docs/MIDI.md](docs/MIDI.md) is the full MIDI implementation chart.
-- **Clock:** the tempo follows it, and its phase is held by trimming the playback speed, as Wi-Fi sync does.
-  START, CONTINUE, STOP and song position start, stop and place the drone.
+- **Clock** (MIDI set to AUTO or FOLLOW): the tempo follows it (a straight line through the last four beats
+  of ticks, so USB's jitter averages out), and its phase is held on the sound as it is heard by trimming the
+  playback speed, as Wi-Fi sync does. START, CONTINUE, STOP and song position start, stop and place the
+  drone, unless START is set to IGNORE.
 
-**MIDI out:** while the drone plays and no clock is coming in, Jaffedrone sends clock (24 a quarter note),
-START and STOP to every port. The clock is timed to the sound as it is heard, the render-ahead time behind
-the engine, so a drum machine lands on the drone's beat.
+**MIDI out:** while the drone plays and no clock is coming in (AUTO), or always (SEND), Jaffedrone sends
+clock (24 a quarter note), START and STOP to every port. The clock is timed to the sound as it is heard
+(the audio clock, through whichever output plays it), so a drum machine lands on the drone's beat.
+
+**MIDI and START on MIX** (under AURA): **MIDI** picks which way the clock goes: **AUTO** (the default)
+sends it and follows a clock that comes in instead, **SEND** always sends it and ignores one coming in,
+**FOLLOW** only follows, **OFF** neither (notes and CCs still come in). **START** FOLLOW (the default) starts
+and stops with the clock; **IGNORE** keeps its tempo only, so you start and stop the drone yourself. Both
+belong to the Brick, like WIFI SYNC: loading a preset keeps them. `JD_MIDI_CLOCK=0` / `JD_MIDI_FOLLOW=0` in
+`launch.sh` never send / follow clock, whatever MIDI is set to.
+
+**Linking Bricks:** several Bricks play in time with one by cable, with no MIDI interface between them: the
+**leader** has a powered USB hub in its **top** port, and each **follower** plugs its **bottom** (charging)
+port into the hub with a data cable. The wiring decides who leads, and any number can follow (up to eight
+MIDI devices and Bricks on the leader together). Nothing to set up: Jaffedrone offers its bottom port as a
+"TrimUI clock link" (TrimUI's kernel has no USB MIDI gadget), and a leader finds the Bricks on its hub within
+a second and sends them its clock with START and STOP, plus where its sound is about 50 times a second.
+Each follower moves its own sound onto that, measured by its audio clock, so they sound together within a
+tenth of a millisecond, at any tempo up to 250 BPM. A follower plugged in mid-song comes in at the leader's
+place; one set to START IGNORE keeps the leader's tempo and bar but is started and stopped by hand.
+Columbia Street, HI5 and RadioScan link the same way, so a Brick running any of them can lead. The leader
+can use USB audio and MIDI gear on the same hub, and one that follows a drum machine's clock passes it on.
+`JD_LINK=0` in `launch.sh` leaves the bottom port alone.
 
 **Audio:** a USB sound card or DAC takes the output while it is plugged in, and the speaker and headphones
 take it back when it is unplugged. `JD_AUDIO=internal` keeps the speaker; `JD_AUDIO=<name>` picks a device
@@ -633,7 +656,8 @@ The audio thread only fills counters; all writing happens in the main thread.
   - each scale's progression;
   - binaural beats, harmonic touch, chance, RELATE and the string gates;
   - Wi-Fi sync;
-  - the two-core render (the same sound as one core), USB MIDI (a key's pitch, clock in and out) and the
+  - the two-core render (the same sound as one core), USB MIDI (a key's pitch, clock in and out, the MIDI modes, clock at 250 BPM,
+    clock only) and the Brick link (holding a leader within a tenth of a millisecond, its USB descriptors), the
     sticks' bowing and bend, their reach (a short stick, a diagonal), the right stick's HARM steps and mapped
     control, and the lights;
   - DSP load, including the worst cases (every effect up) and that resting silent struck modes changes

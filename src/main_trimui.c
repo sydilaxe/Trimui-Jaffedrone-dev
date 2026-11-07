@@ -32,6 +32,7 @@
 #include "gfx.h"
 #include "log.h"
 #include "perflog.h"
+#include "link.h"
 #include "midi.h"
 #include "sticks.h"
 #include "sync.h"
@@ -991,8 +992,11 @@ int main(int argc, char **argv)
     /* the clock out leaves as the sound is heard: the engine runs the render
      * ahead and the device's buffer ahead of it */
     midi_set_latency((float)((use_ahead ? ahead : 0) + bufsz) / rate);
-    if (env_int("JD_MIDI", 1))
+    if (env_int("JD_MIDI", 1)) {
         midi_start(pin ? 1 : -1);
+        /* the bottom port as a clock link: a Brick with a hub can lead this one (link.h) */
+        link_follow_start();
+    }
     jdlog("startup: running after %.2f s", (now_us() - t_start) / 1e6);
     Uint32 last = SDL_GetTicks(), last_save = last, next_draw = last;
     int frames = 0, splash_was = 1;
@@ -1085,6 +1089,7 @@ int main(int argc, char **argv)
 #ifdef JD_BRICKPRO
     leds_close();
 #endif
+    link_follow_stop(); /* the bottom port given back */
     midi_stop();
     jdlog_close();
     perf_close();

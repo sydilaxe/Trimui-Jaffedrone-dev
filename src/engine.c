@@ -47,7 +47,8 @@ static inline float exp_neg(float x)
     return u.f;
 }
 
-#define SONG_MAGIC 0x4a445211u    /* JDR17: mono + clock output (v0.13) */
+#define SONG_MAGIC 0x4a445212u    /* JDR18: the MIDI clock settings (TrimUI) */
+#define SONG_MAGIC_V17 0x4a445211u /* JDR17: mono + clock output (v0.13) */
 #define SONG_MAGIC_V16 0x4a445210u /* JDR16: AIR, and each voice playing or listening (v0.12) */
 #define SONG_MAGIC_V15 0x4a44520fu /* JDR15: per-string LATCH bow ATTACK (v0.9) */
 #define SONG_MAGIC_V14 0x4a44520eu /* JDR14: LATCH play mode, per-string RELEASE (v0.8) */
@@ -186,6 +187,18 @@ typedef struct { /* JDR16: the song before the mono + clock output */
     char prog_name[NPROG][24];
 } SongV16;
 
+typedef struct { /* JDR17: the song before the MIDI clock settings */
+    uint32_t magic;
+    int on[NS];
+    int sp[NS][NSP];
+    int gp[32];
+    int lfo[NLFO][NLP];
+    int fx[NFX];
+    int prog_n, prog_pos;
+    int prog_note[NPROG][NS], prog_fine[NPROG][NS];
+    char prog_name[NPROG][24];
+} SongV17;
+
 #define NBEAT 33 /* binaural beat settings */
 Song song;
 Live live;
@@ -273,7 +286,8 @@ static const ParamDef gparams[NGP] = {{"VOICING", 0, 1},   {"SCALE", 0, NSCALE -
                                       {"ATTACK", 0, 100},  {"RELEASE", 0, 100},     {"KEY LOCK", 0, 1},
                                       {"MODE", 0, NMODAL - 1}, {"PROG", 0, NPROGMODE - 1},
                                       {"PLAY MODE", 0, NPLAYMODE - 1}, {"OUTPUT", 0, 1},
-                                      {"CLOCK ON", 0, 1},  {"PPQN", 0, NPPQN - 1},    {"PULSE", 1, 20}};
+                                      {"CLOCK ON", 0, 1},  {"PPQN", 0, NPPQN - 1},    {"PULSE", 1, 20},
+                                      {"MIDI", 0, NMIDIMODE - 1}, {"START", 0, 1}};
 static const ParamDef lparams[NLP] = {{"RATE", 0, 6}, {"SHAPE", 0, NSH - 1}, {"TARGET", 0, NLT - 1}, {"DEPTH", 0, 100}};
 static const ParamDef fparams[NFX] = {{"TIME", 0, 7},   {"FEEDBK", 0, 95}, {"MIX", 0, 100},
                                       {"SEND", 0, 100}, {"TIME", 0, 100},  {"TONE", 0, 100},
@@ -327,7 +341,7 @@ static const int def_sp[NS][NSP] = {{0, 0, 80, 35, 85, 45, 0, 0, 0, 0, 1, 4, 1, 
                                     {14, 2, 30, 55, 93, 70, 0, 0, 0, 0, 1, 6, 1, 2, 1, 5, 3, 0, 2, 12, 60, 80, 0, 0, 0, 55, 68, 0}};
 static const int def_gp[NGP] = {MODE_CHORD, 1, 45, 4, 72, 30, 3, 70, 80, SYNC_OFF, 50, 50, 45, 30, 75, 1,
                                 ENG_STRINGS, EX_FLUTE, MAT_WOOD, 0, SUB_OCT, 60, 20, 45, 0, MODAL_AUTO, PROG_FREE, PLAY_RINGS,
-                                OUT_STEREO, 0, 1, 5};
+                                OUT_STEREO, 0, 1, 5, MIDI_AUTO, 0};
 static const char *const engine_names[NENGINE] = {"STRINGS", "WIND"};
 static const char *const excite_names[NEXCITE] = {"LIP", "REED", "DOUBLE", "FLUTE", "FREE", "RECORDER", "BANSURI"};
 static const char *const material_names[NMATERIAL] = {"WOOD", "METAL", "CERAMIC", "GLASS"};
@@ -520,6 +534,12 @@ void gparam_format(int p, char *b, int n)
     case GP_CLKSIDE: snprintf(b, n, "%s", x ? "LEFT" : "RIGHT"); return;
     case GP_PPQN: snprintf(b, n, "%d", ppqn_values[x]); return;
     case GP_PULSE: snprintf(b, n, "%d ms", x); return;
+    case GP_MIDI: {
+        static const char *const mn[NMIDIMODE] = {"AUTO", "SEND", "FOLLOW", "OFF"};
+        snprintf(b, n, "%s", mn[x]);
+        return;
+    }
+    case GP_MIDISTART: snprintf(b, n, "%s", x ? "IGNORE" : "FOLLOW"); return;
     case GP_MODALITY: {
         static const char *const mn[NMODAL] = {"AUTO", "IONIAN", "DORIAN", "PHRYGIAN", "LYDIAN", "MIXOLYD", "AEOLIAN", "LOCRIAN"};
         snprintf(b, n, "%s", song.gp[GP_SCALE] == 0 ? mn[x] : "SCALE");
@@ -3490,6 +3510,7 @@ FROM_V1X(from_v13, SongV13)
 FROM_V1X(from_v14, SongV14)
 FROM_V1X(from_v15, SongV15)
 FROM_V1X(from_v16, SongV16)
+FROM_V1X(from_v17, SongV17)
 
 static void from_v12(Song *s, const SongV12 *o)
 {
@@ -3634,6 +3655,7 @@ static int song_read(const char *path, Song *out)
     SongV14 o14;
     SongV15 o15;
     SongV16 o16;
+    SongV17 o17;
     SongV6 o6;
     SongV7 o7;
     SongV8 o8;
@@ -3645,6 +3667,10 @@ static int song_read(const char *path, Song *out)
         memcpy(&magic, buf, sizeof magic);
     if (magic == SONG_MAGIC && got == sizeof s)
         memcpy(&s, buf, sizeof s);
+    else if (magic == SONG_MAGIC_V17 && got == sizeof o17) {
+        memcpy(&o17, buf, sizeof o17);
+        from_v17(&s, &o17);
+    }
     else if (magic == SONG_MAGIC_V16 && got == sizeof o16) {
         memcpy(&o16, buf, sizeof o16);
         from_v16(&s, &o16);

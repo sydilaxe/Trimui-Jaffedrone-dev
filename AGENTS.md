@@ -13,10 +13,17 @@ audio on the host into `build/test`. Without zig on the path, `pip install zigla
 The platform layer is `src/main_trimui.c` (SDL2: video scaled 1.6x from the 640x480 pages, the buttons of
 TrimUI OS's controller or MustardOS's "muOS-Keys" one, found at run time as in Columbia Street and HI5, USB
 audio, the sticks), `src/ahead.c` (render ahead; on the TrimUI the voices and the
-effects on two pinned threads) and `src/midi.c` (USB MIDI through ALSA raw MIDI). The engine is shared with
+effects on two pinned threads), `src/midi.c` (USB MIDI through ALSA raw MIDI) and `src/link.c` (the clock link
+between Bricks: a follower's bottom port as a USB gadget through configfs and FunctionFS, found and driven by
+the leader through usbfs; keep it and the link's messages in `midi.c` the same as Columbia Street's, HI5's and
+RadioScan's, so the apps link to each other). The engine is shared with
 the Miyoo version; keep `engine_render` and the split `engine_voices` / `engine_effects` the same sound,
 sample for sample (the harness checks "render split ... same sound 1"). Nothing in the effects stage may
 feed back into the voices.
+
+`GP_MIDI` and `GP_MIDISTART` (the MIDI clock's way and START / STOP, on MIX) are the TrimUI's: they made the
+song JDR18, which loads every older song; the Miyoo version doesn't have them yet, so its loader rejects a
+song saved here. Like WIFI SYNC and the output, they belong to the Brick: loading a preset keeps them.
 
 The manual (`docs/Jaffedrone-Manual.pdf`, made by `tools/mkmanual.py` from the test's screenshots, on a
 drawn Brick) ships in both zips. When a function, control or screen is added or changed, add or update its
