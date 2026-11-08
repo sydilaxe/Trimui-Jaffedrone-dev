@@ -7,7 +7,7 @@ for meditation.
 
 **Manual:** [docs/Jaffedrone-Manual.pdf](docs/Jaffedrone-Manual.pdf) shows each command on a drawing of the Brick, with the app's screens (`make manual` rebuilds it).
 
-**Latest release:** [v0.4.3](../../releases/tag/v0.4.3) · [all releases](../../releases)
+**Latest release:** [v0.7.0](../../releases/tag/v0.7.0) · [all releases](../../releases)
 
 ## Install
 

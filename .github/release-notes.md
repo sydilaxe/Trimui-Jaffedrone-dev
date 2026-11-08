@@ -7,6 +7,18 @@ Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Ap
 `Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
 from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
 
+**New in 0.7.0: link Bricks over USB**
+- Several Bricks play in time by cable, with no MIDI interface: the leader has a powered USB hub in its top
+  port, and each follower plugs its bottom (charging) port into the hub. A leader finds the Bricks on its hub
+  within a second and sends them its clock with START and STOP, and the followers hold its place within a
+  tenth of a millisecond. Columbia Street, HI5 and RadioScan link the same way. `JD_LINK=0` in `launch.sh`
+  leaves the bottom port alone.
+- **MIDI** and **START** on MIX (under AURA): which way the MIDI clock goes (AUTO, SEND, FOLLOW, OFF), and
+  whether the drone starts and stops with a clock that comes in (FOLLOW) or keeps its tempo only (IGNORE).
+  They belong to the Brick, like WIFI SYNC: loading a preset keeps them. Songs saved now load only on the
+  TrimUI version.
+- A tighter MIDI clock, in and out.
+
 **New in 0.4.3**
 - The info screen and the manual show the app's real version. Earlier releases said 0.13.
 
