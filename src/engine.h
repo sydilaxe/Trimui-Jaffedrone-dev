@@ -8,8 +8,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* shown on the info screen and the manual; a release's tag must match it (CI checks) */
+/* shown on the info screen and the manual; a release build sets it from the tag
+   (`make JD_VERSION=0.8.0`), so this is only the version of a local build */
+#ifndef JD_VERSION
 #define JD_VERSION "0.7.0"
+#endif
 
 #define NS 5
 #define NSP 28 /* params per string */
