@@ -4,8 +4,7 @@
 # GRID: Jaffedrone
 
 # MustardOS starts an app with this script, passing the app's folder. It sets up
-# the app the way MustardOS's own apps do, then runs launch.sh, which is shared
-# with the TrimUI OS package.
+# the app the way MustardOS's own apps do, then runs launch.sh.
 
 APP_DIR="${1:-$(dirname "$0")}"
 

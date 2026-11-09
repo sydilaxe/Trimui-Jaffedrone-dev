@@ -346,9 +346,10 @@ def build(out):
                          "voices that are blown and tongued, tuned to a scale and moving through chords. Each "
                          "voice has its own rhythm, or you play it by hand.", P),
                Paragraph("Install", H2),
-               Paragraph("Unzip <b>Jaffedrone-brick.zip</b> (TrimUI Brick and Brick Hammer) or "
-                         "<b>Jaffedrone-brickpro.zip</b> (Brick Pro: it adds the sticks) at the root of the SD "
-                         "card (it holds <b>Apps/Jaffedrone/</b>) and open <b>Apps → Jaffedrone</b>. The "
+               Paragraph("Jaffedrone runs on MustardOS. Copy <b>Jaffedrone-mustardos-brick.muxapp</b> (TrimUI "
+                         "Brick and Brick Hammer) or <b>Jaffedrone-mustardos-brickpro.muxapp</b> (Brick Pro: it adds "
+                         "the sticks) into the <b>ARCHIVE</b> folder of the first SD card, install it from "
+                         "<b>Applications → Archive Manager</b> and open <b>Applications → Jaffedrone</b>. The "
                          "start-up screen shows for a moment; any button moves on.", P),
                Paragraph("The first buttons", H2),
                table([(num(1), B("START"), "start or stop the drone (it fades in and out)"),
@@ -658,7 +659,7 @@ def build(out):
           Paragraph("A USB sound card or DAC, once plugged in, takes the sound from the speaker and "
                     "headphones; unplugged, the sound comes back to them.", P),
           Paragraph("Settings", H2),
-          Paragraph("In <b>Apps/Jaffedrone/launch.sh</b>: <b>JD_MIDI_NOTES=CHANNELS</b> lets MIDI channels 1-5 "
+          Paragraph("In <b>launch.sh</b> in the app folder: <b>JD_MIDI_NOTES=CHANNELS</b> lets MIDI channels 1-5 "
                     "play strings 1-5; <b>JD_MIDI_CLOCK=0</b> never sends clock; <b>JD_MIDI_FOLLOW=0</b> never "
                     "follows it, whatever MIDI is set to; <b>JD_AUDIO=internal</b> keeps the sound on the speaker and "
                     "headphones.", SMALL),
@@ -718,10 +719,10 @@ def build(out):
                       (B("MENU"), "leave")], widths=(36 * mm, None)), dw=60 * mm),
           Paragraph("The log", H2),
           Paragraph(B("START") + " + " + B("SELECT") + " cycles the log through OFF, BASIC and DETAIL. It is "
-                    "written to <b>Apps/Jaffedrone/jaffedrone_log.txt</b>: how hard the audio is working, any "
+                    "written to <b>jaffedrone_log.txt</b> in the app folder: how hard the audio is working, any "
                     "dropouts, the levels, each voice's tuning (DETAIL) and what was played, with suggestions "
                     "when something could be better. If you hear crackles, set <b>JD_BUFFER=1024</b> in "
-                    "<b>Apps/Jaffedrone/launch.sh</b>.", P)]
+                    "<b>launch.sh</b>.", P)]
 
     doc.build(s, onFirstPage=cover, onLaterPages=later)
 

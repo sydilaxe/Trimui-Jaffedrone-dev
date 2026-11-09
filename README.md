@@ -1,6 +1,6 @@
 # Jaffedrone
 
-A five-string drone instrument for the TrimUI Brick, Brick Hammer and Brick Pro running TrimUI OS or
+A five-string drone instrument for the TrimUI Brick, Brick Hammer and Brick Pro running
 [MustardOS](https://muos.dev), ported from the Miyoo Mini Plus version. It joins an organic string drone
 to an algorithmic progression. You can play it as an instrument, or let it run as a slowly changing drone
 for meditation.
@@ -11,19 +11,17 @@ for meditation.
 
 ## Install
 
-Each release has a package for each device and firmware. The Brick Pro's adds the analog sticks.
+Jaffedrone is built only for MustardOS. Each release has a package for each device; the Brick Pro's adds
+the analog sticks.
 
-| | TrimUI OS | MustardOS |
-| --- | --- | --- |
-| **Brick**, **Brick Hammer** | `Jaffedrone-brick.zip` | `Jaffedrone-mustardos-brick.muxapp` |
-| **Brick Pro** | `Jaffedrone-brickpro.zip` | `Jaffedrone-mustardos-brickpro.muxapp` |
+| Device | Package |
+| --- | --- |
+| **Brick**, **Brick Hammer** | `Jaffedrone-mustardos-brick.muxapp` |
+| **Brick Pro** | `Jaffedrone-mustardos-brickpro.muxapp` |
 
-**TrimUI OS:** unzip the zip at the root of the SD card, so the app lands in `SD:/Apps/Jaffedrone`, then
-open **Apps → Jaffedrone**. Press MENU to quit.
-
-**MustardOS:** copy the `.muxapp` into the `ARCHIVE` folder at the root of the first SD card, install it
+Copy the `.muxapp` into the `ARCHIVE` folder at the root of the first SD card, install it
 from **Applications → Archive Manager** (it lands in `MUOS/application/Jaffedrone`), then open
-**Applications → Jaffedrone**. By hand instead, unzip the `.muxapp` and copy its `Jaffedrone` folder into
+**Applications → Jaffedrone**. Press MENU to quit. By hand instead, unzip the `.muxapp` and copy its `Jaffedrone` folder into
 `MUOS/application/`. The app reads MustardOS's own controller, so the buttons are as labelled whatever A/B
 layout MustardOS is set to; the log names the controller it found. On the Brick Pro the screen can stay dark
 after an app opens under MustardOS (it plays, but nothing shows until the power button sleeps and wakes the
@@ -36,7 +34,7 @@ skips the planned rebuild. The log's `screen:` lines follow all of this: the fir
 first page after the start-up screen, window events, rebuilds and any drawing errors.
 
 With a card mounted, `make install SD=/path/to/card` does the same from a build (add `DEVICE=brickpro` for
-the Brick Pro, `OS=mustardos` for MustardOS).
+the Brick Pro).
 
 ## The strings
 
@@ -522,7 +520,7 @@ by name (the log lists what was opened).
 
 ## Brick Pro: the sticks
 
-The Brick Pro build (`Jaffedrone-brickpro.zip`) adds the two analog sticks. They play the string selected on
+The Brick Pro build (`Jaffedrone-mustardos-brickpro.muxapp`) adds the two analog sticks. They play the string selected on
 PLAY and spring back when let go; nothing they do is saved.
 
 | Stick | Does |
@@ -592,8 +590,8 @@ SELECT** cycles it OFF, BASIC and DETAIL; LOG shows in the header while it runs,
 
 - **At start:** a SYS line with the firmware (TrimUI OS or MustardOS), the board MustardOS names, this build
   (brick or brickpro), the cores, the processor's governor and clock range; a HINT if the Brick build runs on
-  a Brick Pro or the other way round; the screen, the controllers found (with the numbering used: TrimUI
-  OS's, or MustardOS's for the Brick or the Brick Pro), the sound device, and how long start-up took.
+  a Brick Pro or the other way round; the screen, the controllers found (with the numbering used:
+  MustardOS's for the Brick or the Brick Pro), the sound device, and how long start-up took.
 - **Events:** every message shown, parameter changes (repeats while a button is held are merged into one
   line), page changes, chord changes with their scale, and the audio setup at start. DETAIL adds every press
   (with L2/R2 held) and hand playing: plucks, tongued notes, bowing or blowing, with how long; every button,
@@ -664,26 +662,22 @@ The audio thread only fills counters; all writing happens in the main thread.
     nothing that can be heard.
 - `make bench` ranks 32 voice mixtures (each voice five times over, and mixtures such as two cymbals, two
   flutes and a free reed) at their worst, heaviest first, relative to the default drone.
-- `make install SD=/path/to/card [DEVICE=brickpro] [OS=mustardos]` copies the app into `Apps/Jaffedrone`
-  (or `MUOS/application/Jaffedrone`).
-- `make package` writes `build/Jaffedrone-brick.zip` and `build/Jaffedrone-brickpro.zip`, laid out to unzip
-  at the root of the SD card, and `build/Jaffedrone-mustardos-brick.muxapp` and `-brickpro.muxapp` for
-  MustardOS: the same app folder in `Jaffedrone/`, plus `dist/mustardos/` (`mux_launch.sh`,
-  `wake_screen.sh`, the list glyph). The same binaries run on both firmwares: at run time they read
-  MustardOS's "muOS-Keys" controller when it is there (numbered as in MustardOS's `device/tui-brick*`
-  controller maps) and TrimUI OS's controller otherwise.
+- `make install SD=/path/to/card [DEVICE=brickpro]` copies the app into `MUOS/application/Jaffedrone`.
+- `make package` writes `build/Jaffedrone-mustardos-brick.muxapp` and `-brickpro.muxapp` for MustardOS: the
+  app folder in `Jaffedrone/`, plus `dist/mustardos/` (`mux_launch.sh`, `wake_screen.sh`, the list glyph).
+  At run time the app reads MustardOS's "muOS-Keys" controller (numbered as in MustardOS's
+  `device/tui-brick*` controller maps).
 
 ### GitHub builds and releases
 
 Every push runs the **build** workflow:
 
-- It builds the TrimUI OS zips and the MustardOS `.muxapp`s with zig. They are kept as the run's
-  `Jaffedrone-trimui` artifact.
+- It builds the MustardOS `.muxapp`s with zig. They are kept as the run's `Jaffedrone-mustardos` artifact.
 - It runs the test harness, checking that there is no clipping, every wind exciter is in tune, the chord
   memory, key lock and presets work, and Wi-Fi sync locks. The output and screenshots are kept as
   `test-output`.
 
-To publish a release with the four packages attached, go to **Actions → build → Run workflow** and fill in a tag such as
+To publish a release with the two packages attached, go to **Actions → build → Run workflow** and fill in a tag such as
 `v0.11.0`. Pushing a `v*` tag, or creating a release on the website, does the same. The release text comes from
 `.github/release-notes.md`. Before tagging, set `JD_VERSION` in `src/engine.h` to the new version
 (the info screen and the manual show it), run `make manual`, and update the README's **Latest release**
