@@ -18,22 +18,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: The README shows the source's version
+      - name: The version, from the release's tag
+        id: version
+        env:
+          # a manual run's tag, a release made on the website, or a pushed v* tag; empty on other pushes
+          TAG: ${{ inputs.release_tag || github.event.release.tag_name || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
         run: |
-          # README's "Latest release" line and the version in the source move together
-          v=$(make -s version)
-          grep -qF "**Latest release:** [v$v](../../releases/tag/v$v)" README.md ||
-            { echo "::error::README.md's Latest release line isn't v$v, the version in the source"; exit 1; }
+          v="${TAG#v}"
+          # it goes into the binaries as a C string and into file names: keep it plain
+          if [ -n "$v" ] && ! printf '%s' "$v" | grep -Eq '^[0-9A-Za-z][0-9A-Za-z.+-]*$'; then
+            echo "::error::tag $TAG isn't a version like v0.8.0"; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "building version ${v:-$(make -s version) (from src/engine.h)}"
       - name: Build
+        env:
+          JD_VERSION: ${{ steps.version.outputs.version }}
         run: |
           # generated files are committed; keep make from regenerating them
           touch src/font_data.h src/logo_data.h dist/Jaffedrone/splash.jdi docs/Jaffedrone-Manual.pdf
           pip install ziglang==0.14.1
+          # a release's manual shows its tag's version: make it again with that version
+          if [ -n "$JD_VERSION" ]; then
+            pip install reportlab pillow
+            make manual JD_VERSION="$JD_VERSION"
+            python3 tools/mkmanual.py --check docs/Jaffedrone-Manual.pdf
+          fi
           # the scripts the device runs: the launchers, the screen wake, the system report
           for s in dist/Jaffedrone/launch.sh dist/Jaffedrone/sysinfo.sh dist/mustardos/*.sh; do sh -n "$s"; done
-          make package
+          make package JD_VERSION="$JD_VERSION"
+          v=$(make -s version JD_VERSION="$JD_VERSION")
           for d in brick brickpro; do
             file build/$d/jaffedrone | grep -q "ARM aarch64"
+            # the binary carries the version (the info screen and the log show it)
+            grep -qaF "$v" build/$d/jaffedrone || { echo "::error::build/$d/jaffedrone doesn't carry version $v"; exit 1; }
             # the app folder in "Jaffedrone/", with mux_launch.sh, wake_screen.sh and the glyph
             z=build/Jaffedrone-mustardos-$d.muxapp
             ls -l $z
@@ -154,14 +172,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      # the packages carry the tag's version (the mustardos job builds with it)
       - uses: actions/checkout@v4
-      - name: The tag is the version in the source
-        run: |
-          # the app's info screen and the manual show JD_VERSION; set it to the new version first
-          TAG="${{ inputs.release_tag || github.event.release.tag_name || github.ref_name }}"
-          v=$(make -s version)
-          test "${TAG#v}" = "$v" ||
-            { echo "::error::tag $TAG isn't JD_VERSION in src/engine.h ($v): set it, run make manual, update README.md, then tag"; exit 1; }
       - uses: actions/download-artifact@v4
         with:
           name: Jaffedrone-mustardos

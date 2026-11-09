@@ -748,5 +748,6 @@ if __name__ == "__main__":
     SHOT_DIR, OUT = sys.argv[1], sys.argv[2]
     TMP_DIR = os.path.join(ROOT, "build", "manual_png")  # the screenshots as PNG, made once
     os.makedirs(TMP_DIR, exist_ok=True)
-    VERSION = re.search(r'#define JD_VERSION "([^"]+)"', open(os.path.join(ROOT, "src", "engine.h")).read()).group(1)
+    # a release build passes its tag's version; otherwise the one in the source
+    VERSION = os.environ.get("JD_VERSION") or re.search(r'#define JD_VERSION "([^"]+)"', open(os.path.join(ROOT, "src", "engine.h")).read()).group(1)
     build(OUT)

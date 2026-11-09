@@ -24,6 +24,14 @@ PLATH  := src/ahead.h src/midi.h src/link.h src/sticks.h src/perflog.h
 CFLAGS := -O2 -std=gnu11 -Wall -Wextra -fno-math-errno
 APP    := dist/Jaffedrone
 
+# the app's version: a release passes its tag's (`make package JD_VERSION=0.8.0`), otherwise the one in
+# src/engine.h. build/version changes only when it does, so the builds and the manual follow it.
+JD_VERSION ?=
+ifneq ($(JD_VERSION),)
+CFLAGS += -DJD_VERSION='"$(JD_VERSION)"'
+endif
+HDR    += build/version
+
 all: build/brick/jaffedrone build/brickpro/jaffedrone $(APP)/splash.jdi
 
 src/logo_data.h: tools/mklogo.py
@@ -106,11 +114,20 @@ install: build/$(DEVICE)/jaffedrone $(APP)/splash.jdi
 clean:
 	rm -rf build
 
-# the app's version, JD_VERSION in src/engine.h
-version:
-	@sed -n 's/^#define JD_VERSION "\([^"]*\)".*/\1/p' src/engine.h
+build/version: FORCE
+	@mkdir -p build
+	@echo '$(JD_VERSION)' | cmp -s - $@ || echo '$(JD_VERSION)' > $@
+FORCE:
 
-.PHONY: version all test bench package install clean manual
+# the app's version: JD_VERSION=... if given, else the one in src/engine.h
+version:
+ifneq ($(JD_VERSION),)
+	@echo '$(JD_VERSION)'
+else
+	@sed -n 's/^#define JD_VERSION "\([^"]*\)".*/\1/p' src/engine.h
+endif
+
+.PHONY: version all test bench package install clean manual FORCE
 
 # host-side wifi sync interop check (run alongside HI5's)
 build/jd_synctest: $(SRC) src/main_synctest.c $(HDR)
@@ -121,4 +138,4 @@ build/jd_synctest: $(SRC) src/main_synctest.c $(HDR)
 manual: build/jd_test tools/mkmanual.py
 	mkdir -p build/manual/shots docs
 	build/jd_test build/manual/shots > /dev/null
-	python3 tools/mkmanual.py build/manual/shots docs/Jaffedrone-Manual.pdf
+	JD_VERSION='$(JD_VERSION)' python3 tools/mkmanual.py build/manual/shots docs/Jaffedrone-Manual.pdf
