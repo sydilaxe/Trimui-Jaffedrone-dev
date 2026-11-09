@@ -27,7 +27,7 @@ jobs:
       - name: Build
         run: |
           # generated files are committed; keep make from regenerating them
-          touch src/font_data.h src/logo_data.h dist/Jaffedrone/icon.png dist/Jaffedrone/splash.jdi docs/Jaffedrone-Manual.pdf
+          touch src/font_data.h src/logo_data.h dist/Jaffedrone/splash.jdi docs/Jaffedrone-Manual.pdf
           pip install ziglang==0.14.1
           # the scripts the device runs: the launchers, the screen wake, the system report
           for s in dist/Jaffedrone/launch.sh dist/Jaffedrone/sysinfo.sh dist/mustardos/*.sh; do sh -n "$s"; done
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and run the test harness
         run: |
-          touch src/font_data.h src/logo_data.h dist/Jaffedrone/icon.png dist/Jaffedrone/splash.jdi
+          touch src/font_data.h src/logo_data.h dist/Jaffedrone/splash.jdi
           make build/jd_test build/jd_bench
           mkdir -p build/test
           build/jd_test build/test | tee build/test/results.txt

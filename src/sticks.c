@@ -103,7 +103,7 @@ uint32_t stick_led_colour(uint32_t rgb, float intensity)
 }
 
 /* ------------------------------------------------------------- lights
- * TrimUI's lights driver (led_anim, as TrimUI OS, NextUI and MustardOS drive
+ * TrimUI's lights driver (led_anim, as MustardOS and NextUI drive
  * it): for each light, effect_rgb_hex_<name> takes a colour as six hex digits
  * and a space, effect_cycles_<name> how often to run the effect (-1: always),
  * effect_<name> the effect (4: a steady colour), and effect_enable 1 starts

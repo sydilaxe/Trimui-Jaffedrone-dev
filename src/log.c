@@ -176,18 +176,16 @@ static void read_line(const char *p, char *out, int n)
  * as the shared performance log in HI5 and RadioScan writes them */
 static void system_line(void)
 {
-    int muos = access("/opt/muos", F_OK) == 0;
     char board[64], gov[32];
     read_line("/opt/muos/device/config/board/name", board, sizeof board);
     read_line("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", gov, sizeof gov);
     long lo = read_num("/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq");
     long hi = read_num("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq");
-    const char *model = getenv("TRIMUI_MODEL");
     char clock[48] = "clock ?";
     if (hi > 0)
         snprintf(clock, sizeof clock, "%ld-%ld MHz", lo / 1000, hi / 1000);
-    put("SYS", "%s%s%s%s%s, build %s, %ld cores, governor %s, %s", muos ? "MustardOS" : "TrimUI OS",
-        board[0] ? ", board " : "", board, model ? ", model " : "", model ? model : "", BUILD_NAME,
+    put("SYS", "MustardOS%s%s, build %s, %ld cores, governor %s, %s",
+        board[0] ? ", board " : "", board, BUILD_NAME,
         sysconf(_SC_NPROCESSORS_ONLN), gov[0] ? gov : "?", clock);
     /* the Brick build on a Brick Pro has no sticks: MustardOS names the board */
     if (board[0]) {

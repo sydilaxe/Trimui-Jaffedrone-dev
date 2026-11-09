@@ -588,10 +588,10 @@ Jaffedrone keeps a log for tuning the engine, following how it is played, and sp
 SELECT** cycles it OFF, BASIC and DETAIL; LOG shows in the header while it runs, and the choice is kept in
 `jaffedrone.cfg`. It starts at BASIC.
 
-- **At start:** a SYS line with the firmware (TrimUI OS or MustardOS), the board MustardOS names, this build
+- **At start:** a SYS line with the board MustardOS names, this build
   (brick or brickpro), the cores, the processor's governor and clock range; a HINT if the Brick build runs on
   a Brick Pro or the other way round; the screen, the controllers found (with the numbering used:
-  MustardOS's for the Brick or the Brick Pro), the sound device, and how long start-up took.
+  MustardOS's for the Brick or the Brick Pro; any other controller is not read), the sound device, and how long start-up took.
 - **Events:** every message shown, parameter changes (repeats while a button is held are merged into one
   line), page changes, chord changes with their scale, and the audio setup at start. DETAIL adds every press
   (with L2/R2 held) and hand playing: plucks, tongued notes, bowing or blowing, with how long; every button,
