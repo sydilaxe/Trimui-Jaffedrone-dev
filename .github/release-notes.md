@@ -1,7 +1,6 @@
-Jaffedrone test build for the TrimUI Brick, Brick Hammer and Brick Pro (TrimUI OS and MustardOS).
+Jaffedrone test build for the TrimUI Brick, Brick Hammer and Brick Pro running MustardOS.
 
-**Install on TrimUI OS:** unzip `Jaffedrone-brick.zip` (Brick, Brick Hammer) or `Jaffedrone-brickpro.zip` (Brick
-Pro) at the root of the SD card (it contains `Apps/Jaffedrone/`), then open **Apps → Jaffedrone**.
+**MustardOS only:** Jaffedrone is now built only for MustardOS; the TrimUI OS zips are no longer released.
 
 **Install on MustardOS:** copy `Jaffedrone-mustardos-brick.muxapp` (Brick, Brick Hammer) or
 `Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
@@ -71,7 +70,7 @@ from **Applications → Archive Manager**, then open **Applications → Jaffedro
 
 **New: MustardOS, and logs for tuning**
 - Packages for MustardOS on the Brick, Brick Hammer and Brick Pro. The app reads MustardOS's controller, so
-  every button (and the Brick Pro's sticks) works as on TrimUI OS.
+  every button (and the Brick Pro's sticks) works.
 - The screen no longer stays dark on a Brick Pro under MustardOS.
 - The log names the firmware, board and build at start, flags the wrong build for the device, sums up the
   session's dropouts, load, clock and temperature at the end, and at DETAIL logs every button as the
@@ -185,8 +184,8 @@ from **Applications → Archive Manager**, then open **Applications → Jaffedro
 - Each voice can be a string or one of seven winds (VOICE row on the SOUND page).
 - Louder undertones, blown wind attacks, binaural from 0.1 to 40 Hz with journeys, even loudness.
 
-If you hear crackles, set `JD_BUFFER=1024` in `Apps/Jaffedrone/launch.sh`. The log is written to
-`Apps/Jaffedrone/jaffedrone_log.txt` (START + SELECT cycles OFF / BASIC / DETAIL), and the launcher writes
-a system report to `Apps/Jaffedrone/sysinfo.txt`.
+If you hear crackles, set `JD_BUFFER=1024` in `launch.sh` in the app folder (`MUOS/application/Jaffedrone`). The log is written to
+`jaffedrone_log.txt` (START + SELECT cycles OFF / BASIC / DETAIL), and the launcher writes
+a system report to `sysinfo.txt`.
 
-The manual, `Apps/Jaffedrone/Jaffedrone-Manual.pdf`, shows every control on a drawing of the Brick.
+The manual, `Jaffedrone-Manual.pdf` in the app folder, shows every control on a drawing of the Brick.

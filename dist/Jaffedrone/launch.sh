@@ -1,6 +1,6 @@
 #!/bin/sh
-# Jaffedrone launcher for the TrimUI Brick, Brick Hammer and Brick Pro: TrimUI OS runs it
-# directly, MustardOS through mux_launch.sh.
+# Jaffedrone launcher for the TrimUI Brick, Brick Hammer and Brick Pro under MustardOS,
+# run through mux_launch.sh.
 # The sound is made on cores 2 and 3, the screen and the system keep 0 and 1:
 # all four stay online, at full speed, while Jaffedrone plays.
 cd "$(dirname "$0")"
