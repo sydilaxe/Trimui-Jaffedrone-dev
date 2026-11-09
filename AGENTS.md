@@ -11,7 +11,7 @@ the Brick Pro's screen can stay dark on MustardOS, and the list glyph). `make te
 audio on the host into `build/test`. Without zig on the path, `pip install ziglang==0.14.1`.
 
 The platform layer is `src/main_trimui.c` (SDL2: video scaled 1.6x from the 640x480 pages, the buttons of
-MustardOS's "muOS-Keys" controller (or the TrimUI's own one), found at run time as in Columbia Street and HI5, USB
+MustardOS's "muOS-Keys" controller (the Brick's or the Brick Pro's numbering, found at run time as in Columbia Street and HI5), USB
 audio, the sticks), `src/ahead.c` (render ahead; on the TrimUI the voices and the
 effects on two pinned threads), `src/midi.c` (USB MIDI through ALSA raw MIDI) and `src/link.c` (the clock link
 between Bricks: a follower's bottom port as a USB gadget through configfs and FunctionFS, found and driven by

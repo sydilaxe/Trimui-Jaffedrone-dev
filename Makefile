@@ -24,16 +24,13 @@ PLATH  := src/ahead.h src/midi.h src/link.h src/sticks.h src/perflog.h
 CFLAGS := -O2 -std=gnu11 -Wall -Wextra -fno-math-errno
 APP    := dist/Jaffedrone
 
-all: build/brick/jaffedrone build/brickpro/jaffedrone $(APP)/icon.png $(APP)/splash.jdi
+all: build/brick/jaffedrone build/brickpro/jaffedrone $(APP)/splash.jdi
 
 src/logo_data.h: tools/mklogo.py
 	python3 tools/mklogo.py $@
 
 src/font_data.h: tools/mkfont.py
 	python3 tools/mkfont.py /usr/share/fonts/google-noto/NotoSansMono-Bold.ttf $@
-
-$(APP)/icon.png: tools/mkicon.py
-	python3 tools/mkicon.py $@
 
 $(APP)/splash.jdi: tools/mksplash.py art/roofline.jpg src/logo_data.h src/ui.c
 	python3 tools/mksplash.py art/roofline.jpg $@
@@ -77,7 +74,7 @@ test: build/jd_test
 # wake_screen.sh (the Brick Pro's screen can stay dark otherwise) and the list glyph.
 MUX := dist/mustardos
 MUX_APP := Jaffedrone
-build/Jaffedrone-mustardos-%.muxapp: build/%/jaffedrone $(APP)/icon.png $(APP)/splash.jdi docs/Jaffedrone-Manual.pdf \
+build/Jaffedrone-mustardos-%.muxapp: build/%/jaffedrone $(APP)/splash.jdi docs/Jaffedrone-Manual.pdf \
 		$(MUX)/mux_launch.sh $(MUX)/wake_screen.sh $(MUX)/glyph/jaffedrone.svg
 	rm -rf build/mux-$* $@
 	mkdir -p "build/mux-$*/$(MUX_APP)"
@@ -96,7 +93,7 @@ package: build/Jaffedrone-mustardos-brick.muxapp build/Jaffedrone-mustardos-bric
 DEVICE ?= brick
 INSTALL_DIR = $(SD)/MUOS/application/$(MUX_APP)
 INSTALL_ROOT = $(SD)/MUOS
-install: build/$(DEVICE)/jaffedrone $(APP)/icon.png $(APP)/splash.jdi
+install: build/$(DEVICE)/jaffedrone $(APP)/splash.jdi
 	@test -n "$(SD)" || (echo "usage: make install SD=/path/to/mounted/sdcard [DEVICE=brickpro]" && exit 1)
 	@test -d "$(INSTALL_ROOT)" || (echo "$(INSTALL_ROOT) not found — is this the MustardOS card?" && exit 1)
 	mkdir -p "$(INSTALL_DIR)"
