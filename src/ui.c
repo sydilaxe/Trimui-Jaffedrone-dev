@@ -234,8 +234,8 @@ static const int comp_b[7] = {GP_MOTION, GP_HOME, GP_COLOR, GP_EVOLVE, GP_RELATE
 #define LFO_Y (BODY_Y + 260)
 /* MIX: a strip per string (with AURA: playing or listening), master, then
  * AURA, delay, reverb and binaural */
-#define MIX_FX_Y (BODY_Y + 218)
-#define MIX_FXC_Y (BODY_Y + 286)
+#define MIX_FX_Y (BODY_Y + 236)
+#define MIX_FXC_Y (BODY_Y + 304)
 #define MIX_FXW 160
 
 static void layout(int pg);
@@ -556,7 +556,7 @@ void ui_midi_load(void)
     int nsp, ngp, nlp, nfx, same = 0, n = 0, maps = -1;
     CcMap m[NCCM];
     if (fgets(ln, sizeof ln, f) && sscanf(ln, "jdmidi 1 %d %d %d %d", &nsp, &ngp, &nlp, &nfx) == 4)
-        same = nsp == NSP && ngp == NGP && nlp == NLP && nfx == NFX; /* the map's numbers mean the same */
+        same = nsp <= NSP && ngp == NGP && nlp == NLP && nfx == NFX; /* the map's numbers mean the same (new string params come last) */
     while (fgets(ln, sizeof ln, f)) {
         int a[5];
         if (sscanf(ln, "vch %d %d %d %d %d", &a[0], &a[1], &a[2], &a[3], &a[4]) == 5)
@@ -656,16 +656,17 @@ static void layout(int pg)
         break;
     case PAGE_MIX:
         for (int s = 0; s < NS; s++) {
-            cell(s * cw + 3, BODY_Y + 42, cw - 6, 31, CK_S, s, SP_LEVEL);
-            cell(s * cw + 3, BODY_Y + 76, cw - 6, 31, CK_S, s, SP_PAN);
-            cell(s * cw + 3, BODY_Y + 110, cw - 6, 31, CK_S, s, latch_on() ? SP_RELEASE : SP_GATE);
-            cell(s * cw + 3, BODY_Y + 144, cw - 6, 31, CK_S, s, SP_LISTEN);
+            cell(s * cw + 3, BODY_Y + 42, cw - 6, 28, CK_S, s, SP_LEVEL);
+            cell(s * cw + 3, BODY_Y + 73, cw - 6, 28, CK_S, s, SP_PAN);
+            cell(s * cw + 3, BODY_Y + 104, cw - 6, 28, CK_S, s, latch_on() ? SP_RELEASE : SP_GATE);
+            cell(s * cw + 3, BODY_Y + 135, cw - 6, 28, CK_S, s, SP_ACCENT); /* how its ring hits stand out */
+            cell(s * cw + 3, BODY_Y + 166, cw - 6, 28, CK_S, s, SP_LISTEN);
         }
-        cell(3, BODY_Y + 180, cw - 6, 31, CK_G, 0, GP_MASTER);
-        cell(cw + 3, BODY_Y + 180, cw - 6, 31, CK_F, 0, FX_SLEVEL);
-        cell(2 * cw + 3, BODY_Y + 180, cw - 6, 31, CK_G, 0, GP_SUB);
-        cell(3 * cw + 3, BODY_Y + 180, cw - 6, 31, CK_G, 0, GP_SUBDIV);
-        cell(4 * cw + 3, BODY_Y + 180, cw - 6, 31, CK_G, 0, GP_SUBRES);
+        cell(3, BODY_Y + 200, cw - 6, 28, CK_G, 0, GP_MASTER);
+        cell(cw + 3, BODY_Y + 200, cw - 6, 28, CK_F, 0, FX_SLEVEL);
+        cell(2 * cw + 3, BODY_Y + 200, cw - 6, 28, CK_G, 0, GP_SUB);
+        cell(3 * cw + 3, BODY_Y + 200, cw - 6, 28, CK_G, 0, GP_SUBDIV);
+        cell(4 * cw + 3, BODY_Y + 200, cw - 6, 28, CK_G, 0, GP_SUBRES);
         /* in the order the sound passes through them: AIR (at the instruments),
          * then delay, reverb and binaural */
         cell(4, MIX_FXC_Y, MIX_FXW - 8, 33, CK_F, 0, FX_AIR);
@@ -768,6 +769,8 @@ static void adjust(int dir, int repeats)
     int *v = cell_ref(c, &d);
     int step = (repeats > 12 && d->max - d->min > 30) ? 4 : 1;
     int nv = clampi(*v + dir * step, d->min, d->max);
+    if (c->kind == CK_S && c->b == SP_RATE) /* the rates, shortest to longest */
+        nv = engine_rate_step(*v, dir);
     if (c->kind == CK_MAP) /* a CC not fixed, and not another entry's */
         for (;;) {
             int used = cc_fixed(nv);
@@ -879,19 +882,20 @@ static int cell_string(void)
 static void ring_show(void)
 {
     const int *P = song.sp[cur_s];
-    static const char *const rn[6] = {"1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BARS"};
+    char rn[16];
+    sparam_format(cur_s, SP_RATE, rn, sizeof rn);
     if (!P[RING_P(ring, 0)])
         say("%d %s OFF%s", cur_s + 1, ring ? "BOW" : "PLUCK", ring ? " (BOW HOLDS)" : "");
     else
         say("%d %s E(%d,%d) >%d %s", cur_s + 1, ring ? "BOW" : "PLUCK", P[RING_P(ring, 2)], P[RING_P(ring, 1)],
-            P[RING_P(ring, 3)], rn[P[SP_RATE]]);
+            P[RING_P(ring, 3)], rn);
 }
 
 static void ring_edit(int field, int dir)
 {
     int *P = song.sp[cur_s];
     if (field == SP_RATE)
-        P[SP_RATE] = clampi(P[SP_RATE] + dir, 0, 5);
+        P[SP_RATE] = engine_rate_step(P[SP_RATE], dir); /* shortest to longest, triplets and all */
     else {
         int id = RING_P(ring, field);
         const ParamDef *d = sparam_def(id);
@@ -1807,8 +1811,8 @@ static void draw_mix(void)
         gfx_fill(pp - 1, my - 4, 3, 13, C_TEXT);
     }
     int mm = (int)(628 * fminf(1.f, live.master_meter));
-    gfx_fill(6, BODY_Y + 214, 628, 3, C_PANEL2);
-    gfx_fill(6, BODY_Y + 214, mm, 3, live.master_meter > 0.95f ? C_RED : C_SEA);
+    gfx_fill(6, BODY_Y + 231, 628, 3, C_PANEL2);
+    gfx_fill(6, BODY_Y + 231, mm, 3, live.master_meter > 0.95f ? C_RED : C_SEA);
 
     /* the panels, left to right: AURA, DELAY, REVERB, BINAURAL (c: which one,
      * 3 being AURA) */
@@ -2272,7 +2276,10 @@ int ui_midi_cc(int ch, int cc, int v)
     c.kind = (char)m->kind, c.a = (char)(m->kind == CK_S ? s : m->a), c.b = (char)m->b;
     const ParamDef *d;
     int *p = cell_ref(&c, &d);
-    set_cell(&c, d, p, d->min + ((d->max - d->min) * v + 63) / 127);
+    if (c.kind == CK_S && c.b == SP_RATE) /* the rates by length, not by number */
+        set_cell(&c, d, p, engine_rate_at(((NRATE - 1) * v + 63) / 127));
+    else
+        set_cell(&c, d, p, d->min + ((d->max - d->min) * v + 63) / 127);
     return 1;
 }
 
@@ -2296,6 +2303,10 @@ void ui_midi_chart(FILE *f)
         c.kind = (char)m->kind, c.b = (char)m->b;
         const ParamDef *d;
         cell_ref(&c, &d);
-        fprintf(f, "| %d | %s%s | %d to %d |\n", m->cc, m->kind == CK_S ? "String " : "", d->name, d->min, d->max);
+        if (m->kind == CK_S && m->b == SP_RATE)
+            fprintf(f, "| %d | String RATE | 1/32 to 2 BARS, shortest to longest (triplets, dotted and quintuple between) |\n",
+                    m->cc);
+        else
+            fprintf(f, "| %d | %s%s | %d to %d |\n", m->cc, m->kind == CK_S ? "String " : "", d->name, d->min, d->max);
     }
 }

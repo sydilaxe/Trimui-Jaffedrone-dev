@@ -21,7 +21,7 @@
  * no time and leave the sound as it would be without them. */
 #define NKEY 8
 #define NV (NS + NKEY)
-#define NSP 28 /* params per string */
+#define NSP 29 /* params per string */
 #define NGP 34 /* global params */
 #define NPROG 16 /* chords in the progression memory */
 #define NPRESET 10
@@ -36,7 +36,12 @@
  * (off: the bow plays continuously). Ring fields: on, steps, pulses, rotate. */
 enum { SP_NOTE, SP_FINE, SP_LEVEL, SP_BOW, SP_DECAY, SP_BRIGHT, SP_FOLD, SP_STIFF, SP_POS, SP_BUZZ,
        SP_PON, SP_PSTEPS, SP_PPULSES, SP_PROT, SP_BON, SP_BSTEPS, SP_BPULSES, SP_BROT, SP_RATE, SP_PAN,
-       SP_PCHANCE, SP_BCHANCE, SP_HARM, SP_GATE, SP_VOICE, SP_RELEASE, SP_LATK, SP_LISTEN };
+       SP_PCHANCE, SP_BCHANCE, SP_HARM, SP_GATE, SP_VOICE, SP_RELEASE, SP_LATK, SP_LISTEN, SP_ACCENT };
+/* SP_RATE: the rings' step length, straight, triplet, dotted or quintuple
+ * (engine_rate_step walks them shortest to longest), so strings can play
+ * three against four, five against four ...
+ * SP_ACCENT: how hard each pluck ring hit stands out of the drone: the bow
+ * lifts for a moment and the hit is louder (0: as before). */
 /* SP_PCHANCE / SP_BCHANCE: the chance each pulse of the ring plays.
  * SP_HARM: a light touch at a node (OFF, or the 2nd .. 5th harmonic).
  * SP_GATE: how far the string's sound follows its own bow ring.
@@ -249,7 +254,12 @@ void engine_unlatch_all(void); /* every string lets go */
 void engine_key_voice(int v, int src, float note);
 int engine_key_sounding(int v);
 void engine_key_vibrato(int v, float semitones); /* MIDI vibrato on key voice v, this deep */
-void engine_hammer_amp(int s, float amp); /* engine_hammer this hard (0 .. 1), strings and key voices */
+void engine_hammer_amp(int s, float amp);
+/* SP_RATE values from shortest to longest: the one dir steps on from r */
+int engine_rate_step(int r, int dir);
+int engine_rate_rank(int r);  /* r's place, 0 shortest .. NRATE - 1 */
+int engine_rate_at(int rank); /* the rate at that place */
+#define NRATE 14 /* engine_hammer this hard (0 .. 1), strings and key voices */
 float engine_scale_snap(float note);      /* the nearest note of the song's scale (root and tuning) */
 int engine_latch_state(int v); /* LATCH: how voice v (a string or a key voice) drones now */
 void engine_next_chord(void);  /* the next chord of the progression */

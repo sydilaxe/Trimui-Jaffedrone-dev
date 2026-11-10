@@ -787,9 +787,11 @@ int main(int argc, char **argv)
             }
         }
         printf("rings over 4 bars, plucks per string:");
-        for (int s = 0; s < NS; s++)
-            printf(" E(%d,%d)/%s=%d", song.sp[s][SP_PPULSES], song.sp[s][SP_PSTEPS],
-                   (const char *[]){"16", "8", "4", "2", "1b", "2b"}[song.sp[s][SP_RATE]], hits[s][0]);
+        for (int s = 0; s < NS; s++) {
+            char rn[16];
+            sparam_format(s, SP_RATE, rn, sizeof rn);
+            printf(" E(%d,%d) %s=%d", song.sp[s][SP_PPULSES], song.sp[s][SP_PSTEPS], rn, hits[s][0]);
+        }
         printf("\n  string 5 bow ring E(%d,%d): %d openings, swell %.2f..%.2f; chords changed %u (CHANGES off)\n",
                song.sp[4][SP_BPULSES], song.sp[4][SP_BSTEPS], hits[4][1], bmin, bmax, live.chords - c0);
         /* CHANGES 1 BAR: four bars, four chords (bar 0 is the start) */
@@ -798,6 +800,108 @@ int main(int argc, char **argv)
         for (int i = 0; i < secs4; i++)
             engine_render(pcm, RATE / 100);
         printf("  CHANGES 1 BAR: %u chord changes in 4 bars\n", live.chords - c0);
+    }
+
+    /* polyrhythm: every rate keeps its own time (a ring hitting on every step
+     * over 8 beats: 1/8T 24 times, 5/16 about 6.4, 1/16T 48); ACCENT makes a
+     * pluck on a bowed string stand out; the bow ring follows a 1/8 pulse
+     * closely; an old song (JDR18) keeps its rates and has no accent */
+    {
+        int rate_ok = 1;
+        char rl[160] = "";
+        static const int probe[4] = {8, 11, 7, 0}; /* 1/8T, 5/16, 1/16T, 1/16 */
+        static const double per8[4] = {24, 6.4, 48, 32};
+        for (int k = 0; k < 4; k++) {
+            song_default();
+            song.gp[GP_CHANGES] = 0, song.gp[GP_BPM] = 120;
+            for (int s = 0; s < NS; s++)
+                song.sp[s][SP_PON] = 0, song.sp[s][SP_BON] = 0;
+            int *P = song.sp[0];
+            P[SP_PON] = 1, P[SP_PSTEPS] = 16, P[SP_PPULSES] = 16, P[SP_PCHANCE] = 100, P[SP_RATE] = probe[k];
+            engine_init(RATE);
+            engine_set_playing(1);
+            int hits = 0, last = -1;
+            for (int i = 0; i < 4000; i++) { /* 4 s = 8 beats at 120 BPM, in 1 ms blocks: the steps counted */
+                engine_render(pcm, RATE / 1000);
+                if (live.step[0][RING_PLUCK] != last)
+                    hits += last >= 0, last = live.step[0][RING_PLUCK];
+            }
+            char rn[16];
+            sparam_format(0, SP_RATE, rn, sizeof rn);
+            rate_ok &= fabs(hits - per8[k]) <= 1.0;
+            snprintf(rl + strlen(rl), sizeof rl - strlen(rl), "%s%s %d", k ? ", " : "", rn, hits);
+        }
+        /* ACCENT: a quarter-note pluck on a bowed string, its rise over the drone */
+        double rise[2];
+        for (int a = 0; a < 2; a++) {
+            song_default();
+            song.gp[GP_CHANGES] = 0, song.gp[GP_BPM] = 120, song.fx[FX_SCOUNT] = 0;
+            for (int s = 0; s < NS; s++)
+                song.on[s] = s == 0;
+            int *P = song.sp[0];
+            P[SP_PON] = 1, P[SP_PSTEPS] = 1, P[SP_PPULSES] = 1, P[SP_RATE] = 2, P[SP_BON] = 0, P[SP_BOW] = 60;
+            P[SP_ACCENT] = a ? 100 : 0;
+            engine_init(RATE);
+            engine_set_playing(1);
+            engine_render(pcm, RATE * 2);
+            engine_render(pcm, RATE * 4);
+            double sum = 0;
+            int n = 0;
+            for (int w = 4; w < 400; w++) { /* 10 ms windows: the rise into each hit */
+                double e0 = 0, e1 = 0;
+                for (int i = 0; i < 480; i++) {
+                    double x0 = pcm[2 * ((w - 3) * 480 + i)], x1 = pcm[2 * (w * 480 + i)];
+                    e0 += x0 * x0, e1 += x1 * x1;
+                }
+                if (w % 50 == 1) /* a beat every 50 windows; the hit lands in its first */
+                    sum += 10 * log10((e1 + 1) / (e0 + 1)), n++;
+            }
+            rise[a] = sum / n;
+        }
+        /* the bow ring on eighths, every other one: how far the swell follows */
+        song_default();
+        song.gp[GP_CHANGES] = 0, song.gp[GP_BPM] = 120;
+        song.sp[0][SP_BON] = 1, song.sp[0][SP_BSTEPS] = 2, song.sp[0][SP_BPULSES] = 1, song.sp[0][SP_RATE] = 1;
+        engine_init(RATE);
+        engine_set_playing(1);
+        engine_render(pcm, RATE);
+        float bmin = 1.f, bmax = 0.f;
+        for (int i = 0; i < 200; i++) {
+            engine_render(pcm, RATE / 100);
+            bmin = fminf(bmin, live.bow_env[0]), bmax = fmaxf(bmax, live.bow_env[0]);
+        }
+        /* a JDR18 song: rate 1 (1/8) kept, no ACCENT */
+        char p18[512];
+        snprintf(p18, sizeof p18, "%s/v18.jds", out);
+        int old_ok = 0;
+        {
+            struct {
+                uint32_t magic;
+                int on[NS], sp[NS][28], gp[NGP], lfo[NLFO][NLP], fx[NFX];
+                int prog_n, prog_pos, prog_note[NPROG][NS], prog_fine[NPROG][NS];
+                char prog_name[NPROG][24];
+            } o18;
+            song_default();
+            memset(&o18, 0, sizeof o18);
+            o18.magic = 0x4a445212u;
+            for (int v = 0; v < NS; v++)
+                o18.on[v] = 1, memcpy(o18.sp[v], song.sp[v], sizeof o18.sp[v]), o18.sp[v][SP_RATE] = 1;
+            memcpy(o18.gp, song.gp, sizeof o18.gp);
+            memcpy(o18.lfo, song.lfo, sizeof o18.lfo);
+            memcpy(o18.fx, song.fx, sizeof o18.fx);
+            FILE *f = fopen(p18, "wb");
+            if (f) {
+                fwrite(&o18, sizeof o18, 1, f);
+                fclose(f);
+            }
+            song_default();
+            old_ok = song_load(p18) && song.sp[2][SP_RATE] == 1 && song.sp[2][SP_ACCENT] == 0 && song.sp[0][SP_ACCENT] == 0;
+        }
+        song_default();
+        int acc_ok = rise[1] > rise[0] + 3.0, bow_ok = bmax - bmin > 0.5f;
+        printf("polyrhythm: rates over 8 beats %s (1: %d); ACCENT 100 rise %.1f dB against %.1f at 0 (1: %d); bow ring "
+               "on 1/8 swings %.2f..%.2f (1: %d); a JDR18 song keeps its rates, no accent (1: %d): %d\n",
+               rl, rate_ok, rise[1], rise[0], acc_ok, bmin, bmax, bow_ok, old_ok, rate_ok && acc_ok && bow_ok && old_ok);
     }
 
     /* sympathetic strings: each tuning, and how much they add */
@@ -1924,7 +2028,7 @@ int main(int argc, char **argv)
     {
         struct {
             uint32_t magic;
-            int on[NS], sp[NS][NSP], gp[28], lfo[NLFO][NLP], fx[NFX];
+            int on[NS], sp[NS][28], gp[28], lfo[NLFO][NLP], fx[NFX];
             int prog_n, prog_pos, prog_note[NPROG][NS], prog_fine[NPROG][NS];
             char prog_name[NPROG][24];
         } o16;
@@ -2508,13 +2612,21 @@ int main(int argc, char **argv)
             size_t got = f ? fread(buf, 1, sizeof buf, f) : 0;
             if (f)
                 fclose(f);
-            size_t cut = offsetof(Song, gp) + 32 * sizeof(int); /* JDR17 had 32 global params */
+            /* JDR17: 28 string params (no ACCENT) and 32 global params */
+            static unsigned char old[sizeof(Song)];
+            size_t n = offsetof(Song, sp), gp = offsetof(Song, gp);
+            memcpy(old, buf, n);
+            for (int v = 0; v < NS; v++, n += 28 * sizeof(int))
+                memcpy(old + n, buf + offsetof(Song, sp) + (size_t)v * NSP * sizeof(int), 28 * sizeof(int));
+            memcpy(old + n, buf + gp, 32 * sizeof(int));
+            n += 32 * sizeof(int);
+            memcpy(old + n, buf + gp + NGP * sizeof(int), got - gp - NGP * sizeof(int));
+            n += got - gp - NGP * sizeof(int);
             uint32_t magic = 0x4a445211u;
-            memcpy(buf, &magic, 4);
-            memmove(buf + cut, buf + cut + 2 * sizeof(int), got - cut - 2 * sizeof(int));
+            memcpy(old, &magic, 4);
             f = fopen(sp, "wb");
             if (f) {
-                fwrite(buf, 1, got - 2 * sizeof(int), f);
+                fwrite(old, 1, n, f);
                 fclose(f);
             }
             song.gp[GP_MIDI] = MIDI_OFF;
@@ -3159,7 +3271,8 @@ int main(int argc, char **argv)
             song.fx[FX_SCOUNT] = fparam_def(FX_SCOUNT)->max;
             for (int s = 0; s < NS; s++)
                 song.sp[s][SP_VOICE] = s < 3 ? VOICE_PERC(s == 0 ? PC_CYMBAL : s == 1 ? PC_GENDER : PC_DRUM) : 0,
-                song.sp[s][SP_BOW] = s < 3 ? 0 : song.sp[s][SP_BOW];
+                song.sp[s][SP_BOW] = s < 3 ? 0 : song.sp[s][SP_BOW],
+                song.sp[s][SP_PON] = s < 3 ? 0 : song.sp[s][SP_PON]; /* the struck ones struck by hand, now and then */
             engine_perc_skip = pass;
             engine_init(RATE);
             engine_set_playing(1);
