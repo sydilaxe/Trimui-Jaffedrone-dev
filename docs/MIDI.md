@@ -8,15 +8,15 @@ from any page.
 
 | Function | Transmitted | Recognized | Remarks |
 |---|---|---|---|
-| Basic channel | none | 1-16 (any) | Every message is heard on any channel. With `JD_MIDI_NOTES=CHANNELS`, notes on channels 1-5 play strings 1-5. |
+| Basic channel | none | 1-16 (any) | Each voice can have a channel of its own (the MIDI page); every other channel (or the KEYS channel, when set) plays the voice selected on PLAY. `JD_MIDI_NOTES=CHANNELS` gives voices 1-5 channels 1-5 until the page sets them. |
 | Mode | none | Omni on, poly | |
-| Note number | none | 0-127 | Four notes at once, each sounding the voice selected on PLAY at the key's pitch, on voices of their own; a fifth key takes the voice of the one held longest. With `JD_MIDI_NOTES=CHANNELS`, a key tunes its string to itself (out of reach: the nearest octave). |
-| Velocity: note on | none | yes | How hard the note is plucked, and the bow's swell. |
+| Note number | none | 0-127 | The channel's voice at the key's pitch, on key voices of their own (eight in all, four a voice; a fifth key on a voice takes the place of its key held longest). Keys sound with the drone stopped and never start it. |
+| Velocity: note on | none | yes | How hard the note is plucked, and the bow's swell; VEL on the MIDI page sets how much it matters. |
 | Velocity: note off | none | no | |
-| Aftertouch: key | none | no | |
-| Aftertouch: channel | none | yes | How hard the held strings are bowed. |
-| Pitch bend | none | yes | ±2 semitones. |
-| Control change | none | yes | Fixed: 1, 64, 74, 91, 120, 123 (below). Settings: the CC table (below). |
+| Aftertouch: key | none | yes | Moves what TOUCH picks (below), on that key's note only. |
+| Aftertouch: channel | none | yes | Moves what TOUCH picks, on the channel's keys without their own. |
+| Pitch bend | none | yes | ±BEND semitones (the MIDI page: 1-24, 2 at first). |
+| Control change | none | yes | Fixed: 1, 64, 74, 91, 120, 123 (below). Settings: the CC map (the defaults below, or learned). |
 | Program change | none | no | |
 | System exclusive | yes | yes | Only the Brick link's position (`F0 7D 'T' 'L' ... F7`, 14 bytes, about 50 a second, to linked Bricks only); others pass by. |
 | Song position | none | yes | Places the drone (not with START set to IGNORE). |
@@ -33,7 +33,7 @@ from any page.
 
 | CC | Does |
 |---|---|
-| 1 (mod wheel) | How hard the held strings are bowed |
+| 1 (mod wheel) | Moves what MOD picks on the MIDI page: BOW (the default), TONE, SWELL, VIBRATO, PITCH, HARM, FOLD, BUZZ or OFF (aftertouch's TOUCH picks the same way) |
 | 64 (sustain) | Held keys sound on after they're let go |
 | 74 | TONE, darker to brighter |
 | 91 | More or less reverb |
@@ -41,10 +41,14 @@ from any page.
 
 ## Settings by CC
 
-The important voice, engine and play settings, all on one channel (any channel is heard). A CC's 0-127 spans the
-setting's whole range. The string settings act on the selected string, as the buttons do: CC 2 chooses it. The CC
-numbers are ones MIDI leaves free, in blocks: 14-29 the voice, 85-90 the engine, 102-112 the string's rings,
-113-119 the play.
+The important voice, engine and play settings, on any channel. A CC's 0-127 spans the setting's whole range. A
+voice's settings act on the voice of the channel the CC comes on (the MIDI page's channels), or on other channels
+the selected string, as the buttons do: CC 2 chooses it. The defaults below use numbers MIDI leaves free, in
+blocks: 14-29 the voice, 85-90 the engine, 102-112 the string's rings, 113-119 the play.
+
+**MIDI learn** changes them: select any control on SOUND, COMPOSE, MIX or SONG, press START + B and move a knob.
+The MIDI page lists the map: A learns an entry again, Y / X change its CC, R2 + Y forgets it. The map and the
+page's settings are kept in `midi.cfg` in the app folder (they belong to the Brick, not to songs).
 
 <!-- cc table -->
 | CC | Setting | Range |

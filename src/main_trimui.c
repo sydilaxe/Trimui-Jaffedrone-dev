@@ -846,6 +846,7 @@ int main(int argc, char **argv)
     song_default();
     if (song_load(SAVE_PATH))
         fprintf(stderr, "jaffedrone: restored %s\n", SAVE_PATH);
+    ui_midi_load(); /* the MIDI page's channels and CC map (midi.cfg) */
 
     rate = env_int("JD_RATE", 48000);
     bufsz = env_int("JD_BUFFER", 512); /* the A53s have the time: half the Miyoo's delay */
@@ -920,8 +921,7 @@ int main(int argc, char **argv)
         leds = leds_open(getenv("JD_LED_DIR"));
 #endif
 
-    engine_init(rate);
-    engine_set_playing(1);
+    engine_init(rate); /* stopped: only START (or a clock's START) starts the drone */
 
     /* JD_AHEAD: frames made ahead of the device (0: made in its request);
      * JD_CHUNK: the pieces they are made in */

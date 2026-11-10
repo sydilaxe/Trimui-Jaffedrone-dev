@@ -4,21 +4,21 @@
  * is needed on the device. Ports are found as they are plugged in.
  *
  * In (any channel):
- *   notes          NOTES=POLY (default): the keyboard plays the voice
- *                  selected on PLAY, NKEY (four) notes at once: each key
- *                  sounds that string's voice at the key's pitch on a key
- *                  voice of its own (engine_key_voice), beside the strings,
- *                  so the drone and the song are untouched. It plucks as
- *                  hard as the key is struck and bows while held (a wind:
- *                  tongues and blows; LATCH: drones until the key is let
- *                  go, a soft key swelling in with the bow). A key goes to
- *                  a silent key voice, else the one let go longest ago;
- *                  with four held, the key held longest gives its voice up.
- *                  NOTES=CHANNELS: channels 1-5 play strings 1-5, other
- *                  channels the selected string, each key tuning its
- *                  string to itself as a bend on top of the song.
- *   pitch bend     two semitones
- *   CC1, pressure  how hard the held strings are bowed
+ *   notes          a key plays the voice its channel plays (the MIDI
+ *                  page: each voice may have a channel of its own; the keys
+ *                  on the other channels, or on KEYS's, play the voice
+ *                  selected on PLAY) at the key's own pitch, on a key voice
+ *                  of its own (engine_key_voice), beside the strings, so the
+ *                  drone and the song are untouched: NKEY at once, at most
+ *                  PER_VOICE a voice. It plucks as hard as the key is struck
+ *                  (VELOCITY: how much that matters) and bows while held (a
+ *                  wind: tongues and blows; LATCH: drones until the key is
+ *                  let go, a soft key swelling in with the bow). A key never
+ *                  starts the drone: it sounds with it stopped.
+ *   pitch bend     BEND semitones (the MIDI page)
+ *   aftertouch     key or channel: what AFTERTOUCH moves (bow, tone, swell,
+ *                  vibrato, pitch, harmonic, fold, buzz)
+ *   CC1            what MOD WHEEL moves (the same choice)
  *   CC64           sustain
  *   CC74           TONE, darker / brighter;  CC91 more / less reverb
  *   CC120, CC123   everything let go
@@ -34,10 +34,27 @@
  * Which way the clock goes is the MIX page's MIDI setting (GP_MIDI: AUTO as
  * above, SEND always, FOLLOW only, OFF neither). Bricks also follow one
  * another over USB through a hub (link.h).
- * Settings, in launch.sh: JD_MIDI=0 turns it off, JD_MIDI_NOTES=CHANNELS,
+ * Settings, in launch.sh: JD_MIDI=0 turns it off, JD_MIDI_NOTES=CHANNELS
+ * gives voices 1-5 channels 1-5 (unless the MIDI page has set channels),
  * JD_MIDI_CLOCK=0 never sends clock, JD_MIDI_FOLLOW=0 never follows it. */
 #pragma once
 #include <stdint.h>
+
+#include "engine.h"
+
+/* the MIDI page's settings (ui.c shows, edits and keeps them; they belong to
+ * the Brick, not the song) */
+enum { MT_OFF, MT_BOW, MT_TONE, MT_SWELL, MT_VIBRATO, MT_PITCH, MT_HARM, MT_FOLD, MT_BUZZ, NMT };
+typedef struct {
+    int vch[NS];       /* each voice's own channel: 0 none, 1-16 */
+    int keys_ch;       /* the selected voice's channel: 0 any not a voice's, 1-16 */
+    int vel;           /* VELOCITY: 0 every key alike .. 100 as struck */
+    int at_to, mod_to; /* what aftertouch and the mod wheel move (MT_) */
+    int bend;          /* pitch bend range, semitones */
+} MidiCfg;
+extern MidiCfg midi_cfg;
+const char *midi_target_name(int t);
+int midi_channel_voice(int ch); /* the voice channel ch (0-15) plays: its own, the selected one, or -1 */
 
 void midi_start(int core);   /* the thread (pinned to core, -1: anywhere) */
 void midi_stop(void);

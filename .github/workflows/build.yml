@@ -97,6 +97,8 @@ jobs:
           # USB MIDI and the Brick Pro's sticks
           grep -q "midi key: A3 -> .*(want 220: 1)" $r
           grep -q "^midi keys: .*(1: 1): 1$" $r
+          grep -q "^midi learn: .*: 1$" $r
+          grep -q "^stopped: .*the drone still stopped (1: 1); R2 + up lifts the bow .*(1: 1)$" $r
           grep -q "^midi cc: .*not queued: 1$" $r
           # the MIDI chart's CC table is the one the app uses
           build/jd_test --midi-chart > cc.md

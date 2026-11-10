@@ -231,6 +231,8 @@ strings, and **LATCH**, where the rings rest and you play:
   harmonic up (a wind voice overblows); let go and it comes back. **START + L2** drops the mallet on it
   instead of plucking. R2 held for a quick sound change (R2 + a d-pad direction, X, Y, A or B) puts the
   string back as it was before R2 was pressed.
+- None of this needs the drone started: with it stopped, a plucked or bowed string still drones, and
+  stopping the drone (START) leaves a droning string droning until you let it go (**A** lets all go).
 - Each column shows a board with a shed-roof top that fills while its string drones and drains as it fades,
   with the word PLUCKED, BOWED or FADING.
 
@@ -334,6 +336,9 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
 - **MIX:** each string's level, pan and gate with a meter, master, the sympathetic strings' level, the
   undertones (SUB, SUB DIV, SUB RES), then delay,
   reverb and binaural. Under AURA: the MIDI clock's **MIDI** and **START** settings (see
+  [USB: MIDI and audio](#usb-midi-and-audio)).
+- **MIDI:** which channel each voice listens on, how the keys play (their channel, velocity, what
+  aftertouch and the mod wheel move, the bend range) and the CC map, with MIDI learn (see
   [USB: MIDI and audio](#usb-midi-and-audio)).
 
 ## Song: presets, chord memory, key
@@ -447,10 +452,14 @@ on the shoulder buttons.
 | Button | Action |
 |---|---|
 | SELECT | next chord |
-| START (tap) | start / stop the drone |
+| START (tap) | start / stop the drone (its rings, chord changes and clock): the only way it starts, besides a MIDI or Wi-Fi sync START. Playing by hand or from MIDI sounds with the drone stopped, and never starts it |
 | L1 / R1 | previous / next page |
+| START + B | MIDI learn: on SOUND, COMPOSE, MIX or SONG, the selected control; then move a knob or slider. Again: cancel |
 | START + A | PLAY MODE: RINGS or LATCH (see Latch) |
 | MENU | exit |
+
+**Combos:** holding R2 (or L2) and pressing another button is an edit, as listed above. On PLAY, R2 held alone
+bows; once R2 is used for an edit the bow lifts (in LATCH, the string goes back as it was).
 
 **On SOUND, COMPOSE and MIX:** the d-pad moves to the nearest control in that direction, and Y / X lowers or
 raises it. On a string's control, A mutes or unmutes that string and B plucks it. Elsewhere, B plucks the
@@ -470,22 +479,34 @@ are found as they are plugged in, and a message names each one.
 
 **MIDI in** (any channel; `src/midi.h` has the details):
 
-- **Notes:** the keyboard plays the voice selected on PLAY, four notes at once.
-  - **Which voice:** every key sounds the selected string's voice (its instrument and its SOUND settings,
-    level and pan) at the key's own pitch, on one of four key voices of their own beside the five strings,
-    so the drone and the song are never changed, and a muted string still plays from the keys. With four
-    keys held, a fifth takes the voice of the key held longest. Pick another string on PLAY and the next
-    keys play its sound.
+- **Notes:** a key plays the voice its channel plays, at the key's own pitch.
+  - **Which voice:** on the MIDI page each voice can have a channel of its own (VOICE 1-5: OFF or 1-16).
+    A key on any other channel (or on KEYS's channel, when set) plays the voice selected on PLAY. Each
+    key sounds that voice (its instrument and its SOUND settings, level and pan) on one of eight key voices
+    of their own beside the five strings, so the drone and the song are never changed, and a muted string
+    still plays from the keys. A voice plays up to four keys at once; a fifth takes the place of its key
+    held longest.
   - **How it plays:** the key plucks as hard as it is struck and bows while held (a wind voice is tongued
-    and blown). In LATCH a key drones (a soft key swells in with the bow, a firm one plucks) until it is
-    let go, then fades over the voice's RELEASE.
-  - With `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play strings 1-5 themselves instead (each key tuning its
-    string as a bend on top of the song, one note a string).
-- **Pitch bend:** two semitones. **Mod wheel** and **pressure:** how hard the held strings are bowed.
-  **CC64:** sustain. **CC74:** TONE. **CC91:** reverb. **CC120 / CC123:** everything let go.
-- **Settings by CC:** the important voice, engine and play settings each have a CC, on any channel: CC 2
-  chooses the string, 14-29 its voice, 85-90 the engine, 102-112 the string's rings, 113-119 the play.
+    and blown). **VEL** sets how much velocity matters (100 as struck, 0 every key alike). In LATCH a key
+    drones (a soft key swells in with the bow, a firm one plucks) until it is let go, then fades over the
+    voice's RELEASE.
+  - Keys sound with the drone stopped and never start it.
+  - `JD_MIDI_NOTES=CHANNELS` in launch.sh gives voices 1-5 channels 1-5, until the MIDI page sets them.
+- **Aftertouch** (of a key, or of the channel) and the **mod wheel** (CC1): each moves what the MIDI page's
+  **TOUCH** and **MOD** pick: BOW (harder), TONE (brighter), SWELL (level, from 35% up), VIBRATO, PITCH (up
+  to two semitones), HARM (the next harmonic past halfway), FOLD, BUZZ, or OFF. A key's own aftertouch
+  moves only its note. Both start on BOW.
+- **Pitch bend:** **BEND** semitones (1-24, 2 at first). **CC64:** sustain. **CC74:** TONE. **CC91:**
+  reverb. **CC120 / CC123:** everything let go.
+- **Settings by CC:** the important voice, engine and play settings each have a CC (the defaults: CC 2
+  chooses the string, 14-29 its voice, 85-90 the engine, 102-112 the string's rings, 113-119 the play).
+  A voice's setting moves the voice of the channel the CC comes on (the selected one on other channels).
   [docs/MIDI.md](docs/MIDI.md) is the full MIDI implementation chart.
+- **MIDI learn:** on SOUND, COMPOSE, MIX or SONG, select a control, press **START + B** and move a knob:
+  that CC now sets it (a CC sets one thing; one already mapped leaves its old setting). On the MIDI page the
+  map lists every CC: **A** learns an entry's CC again, **Y / X** change it by hand, **R2 + Y** forgets it.
+  CCs 1, 64, 74, 91, 120 and 123 are fixed. The MIDI page's settings and map belong to the Brick, not the
+  song: they are kept in `midi.cfg` in the app folder.
 - **Clock** (MIDI set to AUTO or FOLLOW): the tempo follows it (a straight line through the last four beats
   of ticks, so USB's jitter averages out), and its phase is held on the sound as it is heard by trimming the
   playback speed, as Wi-Fi sync does. START, CONTINUE, STOP and song position start, stop and place the

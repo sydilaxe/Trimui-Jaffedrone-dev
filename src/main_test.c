@@ -347,7 +347,7 @@ int main(int argc, char **argv)
 
     const int secs = 12, chunk = RATE / 100;
     int16_t *pcm = malloc(sizeof(int16_t) * 2 * RATE * secs);
-    static const char *const pages[PAGE_COUNT] = {"play", "sound", "compose", "mix", "song"};
+    static const char *const pages[PAGE_COUNT] = {"play", "sound", "compose", "mix", "song", "midi"};
     for (int t = 0, f = 0; t < secs * 100; t++, f += chunk) {
         engine_render(pcm + 2 * f, chunk);
         ui_tick(10);
@@ -1817,6 +1817,44 @@ int main(int argc, char **argv)
         int next = ui_page();
         press(BTN_L1);
         int back = ui_page();
+        /* only START (or a clock) starts the drone: playing by hand with it
+         * stopped sounds, and leaves it stopped */
+        song_default();
+        song.gp[GP_CHANGES] = 0;
+        engine_init(RATE);
+        engine_set_playing(0);
+        engine_render(pcm, RATE / 2);
+        double quiet0 = rms_of(pcm, 0, RATE / 2);
+        ui_tick(300);
+        press(BTN_L2); /* a pluck */
+        engine_render(pcm, RATE / 2);
+        double pl = rms_of(pcm, 0, RATE / 4);
+        int still_stopped = !live.playing;
+        song.gp[GP_PLAYMODE] = PLAY_LATCH;
+        ui_tick(300);
+        press(BTN_R2); /* LATCH: bowed on, droning */
+        engine_render(pcm, RATE * 2);
+        double dr = rms_of(pcm, RATE, RATE / 2);
+        still_stopped &= !live.playing;
+        engine_unlatch_all();
+        song.gp[GP_PLAYMODE] = PLAY_RINGS;
+        engine_render(pcm, RATE * 3);
+        int stopped_ok = quiet0 < 1.0 && pl > 100.0 && dr > 100.0 && still_stopped;
+        /* RINGS: R2 held bows; R2 + up (TONE) is an edit: the bow lifts while R2 is still held */
+        engine_set_playing(1);
+        ui_tick(300);
+        ui_button(BTN_R2, 1);
+        engine_render(pcm, RATE);
+        float bowing_env = live.hand_env[ui_selected_string()];
+        press(BTN_UP);
+        engine_render(pcm, RATE);
+        float lifted_env = live.hand_env[ui_selected_string()];
+        ui_button(BTN_R2, 0);
+        int combo_ok = bowing_env > 0.2f && lifted_env < 0.02f;
+        engine_set_playing(0);
+        printf("stopped: silent %.0f, L2 plucks %.0f, LATCH R2 drones %.0f, the drone still stopped (1: %d); R2 + up "
+               "lifts the bow %.2f -> %.2f (1: %d)\n",
+               quiet0, pl, dr, stopped_ok, bowing_env, lifted_env, combo_ok);
         printf("shoulders: LATCH R2 bows at once %d, used for an edit put back %d, a tap drones %d, again lets go %d; "
                "R1 page %d -> %d, L1 back %d: %d\n",
                on_press, undone, tap, again, pg, next, back,
@@ -2113,80 +2151,163 @@ int main(int argc, char **argv)
         printf("midi key: A3 -> %.1f Hz (want 220: %d), string tuned %.2f\n", key_hz, fabs(key_hz - 220.0) < 2.0,
                engine_string_pitch(0));
 
-        /* POLY: every key plays the voice selected on PLAY, four at once,
-         * each on a key voice of its own; a fifth key takes the voice of the
-         * key held longest. The keys sound with every string muted, use the
-         * selected string's settings (its LEVEL), and stop running once let
-         * go and silent */
+        /* the keys: each plays the voice its channel plays (the selected one,
+         * or a voice's own channel), at most four keys a voice, on key
+         * voices of their own; they sound with the drone stopped and never
+         * start it; velocity, aftertouch, the mod wheel and the bend range
+         * as the MIDI page sets them */
         {
-            song_default();
-            song.gp[GP_CHANGES] = 0;
-            engine_init(RATE);
-            engine_set_playing(1);
-            midi_reset();
-            int sel = ui_selected_string(), v[NKEY + 1];
             uint64_t tk = 5000000;
             uint8_t m[3] = {0x90, 0, 100};
-#define KEY_ON(k) (m[0] = 0x90, m[1] = (uint8_t)(k), m[2] = 100, midi_feed(m, 3, tk += 1000), midi_voice_of(0, k))
-#define KEY_OFF(k) (m[0] = 0x80, m[1] = (uint8_t)(k), m[2] = 0, midi_feed(m, 3, tk += 1000))
-            static const int chord[NKEY] = {57, 61, 64, 69};
-            for (int k = 0; k < NKEY; k++)
-                v[k] = KEY_ON(chord[k]);
+#define SEND(a, b, c) (m[0] = (uint8_t)(a), m[1] = (uint8_t)(b), m[2] = (uint8_t)(c), midi_feed(m, 3, tk += 1000))
+#define SEND2(a, b) (m[0] = (uint8_t)(a), m[1] = (uint8_t)(b), midi_feed(m, 2, tk += 1000))
+#define KEY_ON(ch, k, v) (SEND(0x90 | (ch), k, v), midi_voice_of(ch, k))
+#define KEY_OFF(ch, k) SEND(0x80 | (ch), k, 0)
+#define FRESH()                                                                                                       \
+    (song_default(), song.gp[GP_CHANGES] = 0, song.fx[FX_SCOUNT] = 0, song.gp[GP_DRIFT] = 0,                          \
+     song.lfo[0][LP_DEPTH] = 0, engine_init(RATE), engine_set_playing(0), midi_reset())
+            MidiCfg keep = midi_cfg;
+            FRESH();
+            int sel = ui_selected_string(), v[5];
+            static const int chord[5] = {57, 61, 64, 69, 72};
+            for (int k = 0; k < 5; k++)
+                v[k] = KEY_ON(0, chord[k], 100);
             int apart = 1;
-            for (int k = 0; k < NKEY; k++)
+            for (int k = 0; k < 4; k++)
                 for (int j = 0; j < k; j++)
                     apart &= v[k] != v[j] && v[k] >= NS && v[k] < NV;
-            int fifth = KEY_ON(72), gone = midi_voice_of(0, chord[0]);
-            int steal_ok = fifth == v[0] && gone < 0;
-            KEY_OFF(72);
-            for (int k = 1; k < NKEY; k++)
-                KEY_OFF(chord[k]);
-            /* the strings all muted: one key still sounds, at its pitch */
-            song_default();
-            song.gp[GP_CHANGES] = 0;
+            int steal_ok = v[4] == v[0] && midi_voice_of(0, chord[0]) < 0; /* a fifth on one voice: the oldest gives way */
+            for (int k = 1; k < 5; k++)
+                KEY_OFF(0, chord[k]);
+            /* the strings all muted, the drone stopped: a key sounds, at its pitch, and the drone stays stopped */
+            FRESH();
             for (int s = 0; s < NS; s++)
                 song.on[s] = 0;
-            engine_init(RATE);
-            engine_set_playing(1);
-            midi_reset();
             engine_render(pcm, RATE / 2);
             double before = rms_of(pcm, 0, RATE / 2);
-            KEY_ON(57);
+            int kv = KEY_ON(0, 57, 100);
             engine_render(pcm, RATE);
             double key_rms = rms_of(pcm, RATE / 4, RATE / 2), key_hz = hz_yin(pcm, RATE / 2, RATE / 4);
-            KEY_OFF(57);
-            for (int i = 0; i < 40 && engine_key_sounding(v[0]); i++)
+            int stopped = !live.playing;
+            KEY_OFF(0, 57);
+            for (int i = 0; i < 40 && engine_key_sounding(kv); i++)
                 engine_render(pcm, RATE / 4);
-            int stops = !engine_key_sounding(v[0]);
-            /* the selected string's LEVEL at 0: its keys are silent; another's, they sound */
-            int other = (sel + 1) % NS;
+            int stops = !engine_key_sounding(kv);
+            int sound_ok = before < 1.0 && key_rms > 100.0 && fabs(key_hz - 220.0) < 3.0 && stops && stopped;
+            /* the selected voice's LEVEL at 0: its keys are silent; voice 2 on channel 2, its LEVEL kept: channel 2 sounds */
             double lv[2];
+            int other = (sel + 1) % NS;
             for (int pass = 0; pass < 2; pass++) {
-                song_default();
-                song.gp[GP_CHANGES] = 0;
+                FRESH();
                 for (int s = 0; s < NS; s++)
                     song.on[s] = 0;
-                song.sp[pass ? other : sel][SP_LEVEL] = 0;
-                song.fx[FX_SCOUNT] = 0; /* no sympathetic strings: they ring from the bridge whatever the level */
-                engine_init(RATE);
-                engine_set_playing(1);
-                midi_reset();
-                KEY_ON(57), KEY_ON(64);
+                song.sp[sel][SP_LEVEL] = 0;
+                midi_cfg.vch[other] = 2;
+                KEY_ON(pass, 57, 100), KEY_ON(pass, 64, 100);
                 engine_render(pcm, RATE / 2);
                 lv[pass] = rms_of(pcm, RATE / 4, RATE / 4);
-                KEY_OFF(57), KEY_OFF(64);
+                KEY_OFF(pass, 57), KEY_OFF(pass, 64);
+                midi_cfg.vch[other] = 0;
             }
+            int chan_ok = lv[0] < 5.0 && lv[1] > 100.0;
+            /* velocity: a soft key quieter than a hard one, unless VELOCITY is 0 */
+            double vr[2][2];
+            for (int sens = 0; sens < 2; sens++)
+                for (int hard = 0; hard < 2; hard++) {
+                    FRESH();
+                    for (int s = 0; s < NS; s++)
+                        song.on[s] = 0;
+                    midi_cfg.vel = sens ? 100 : 0;
+                    KEY_ON(0, 57, hard ? 127 : 20);
+                    engine_render(pcm, RATE / 4);
+                    vr[sens][hard] = rms_of(pcm, 0, RATE / 4);
+                    KEY_OFF(0, 57);
+                }
+            midi_cfg.vel = 100;
+            int vel_ok = vr[1][1] > 1.3 * vr[1][0] && fabs(vr[0][1] / vr[0][0] - 1.0) < 0.05;
+            /* aftertouch to PITCH: two semitones up at full pressure; bend at 12: an octave */
+            FRESH();
+            for (int s = 0; s < NS; s++)
+                song.on[s] = 0;
+            midi_cfg.at_to = MT_PITCH, midi_cfg.bend = 12;
+            KEY_ON(0, 57, 100);
+            SEND2(0xd0, 127); /* channel pressure: full */
+            engine_render(pcm, RATE);
+            double at_hz = hz_yin(pcm, RATE / 2, RATE / 4);
+            SEND2(0xd0, 0);
+            SEND(0xe0, 127, 127); /* bend all the way up */
+            engine_render(pcm, RATE);
+            double bend_hz = hz_yin(pcm, RATE / 2, RATE / 4);
+            KEY_OFF(0, 57);
+            midi_cfg.at_to = MT_BOW, midi_cfg.bend = 2;
+            /* the mod wheel to TONE, and one key's own aftertouch to TONE: that key's BRIGHT only */
+            FRESH();
+            midi_cfg.mod_to = MT_TONE, midi_cfg.at_to = MT_TONE;
+            int ka = KEY_ON(0, 60, 100), kb = KEY_ON(0, 67, 100);
+            int bright0 = engine_param_played(ka, SP_BRIGHT);
+            SEND(0xa0, 60, 127); /* key 60 pressed hard */
+            int poly_a = engine_param_played(ka, SP_BRIGHT), poly_b = engine_param_played(kb, SP_BRIGHT);
+            SEND(0xb0, 1, 127); /* the mod wheel up: both */
+            int mod_b = engine_param_played(kb, SP_BRIGHT);
+            KEY_OFF(0, 60), KEY_OFF(0, 67);
+            midi_cfg = keep;
+            int expr_ok = fabs(at_hz / 220.0 - 1.1225) < 0.01 && fabs(bend_hz / 440.0 - 1.0) < 0.01 && poly_a == 100 &&
+                          poly_b == bright0 && mod_b == 100;
 #undef KEY_ON
 #undef KEY_OFF
-            int sound_ok = before < 1.0 && key_rms > 100.0 && fabs(key_hz - 220.0) < 3.0 && stops;
-            int src_ok = lv[0] < 5.0 && lv[1] > 100.0;
-            printf("midi keys: selected %d, four keys on voices %d %d %d %d (apart 1: %d), a fifth takes the oldest's "
-                   "%d (1: %d); strings muted, a key rms %.0f at %.1f Hz (want 220), let go it stops %d; selected LEVEL 0 "
-                   "rms %.0f, another's %.0f (1: %d): %d\n",
-                   sel, v[0], v[1], v[2], v[3], apart, fifth, steal_ok, key_rms, key_hz, stops,
-                   lv[0], lv[1], src_ok, apart && steal_ok && sound_ok && src_ok);
+#undef SEND
+#undef SEND2
+#undef FRESH
+            printf("midi keys: selected %d, four on key voices %d %d %d %d (apart 1: %d), a fifth on the voice takes the "
+                   "oldest's %d (1: %d); drone stopped and strings muted, a key rms %.0f at %.1f Hz, the drone still "
+                   "stopped and let go it stops (1: %d); selected LEVEL 0 rms %.0f, voice %d on channel 2 %.0f (1: %d); "
+                   "velocity soft/hard %.0f/%.0f, at VELOCITY 0 %.0f/%.0f (1: %d); aftertouch PITCH %.1f Hz, bend 12 "
+                   "%.1f Hz, key aftertouch TONE %d/%d, mod wheel %d (1: %d): %d\n",
+                   sel, v[0], v[1], v[2], v[3], apart, v[4], steal_ok, key_rms, key_hz, sound_ok, lv[0], other + 1,
+                   lv[1], chan_ok, vr[1][0], vr[1][1], vr[0][0], vr[0][1], vel_ok, at_hz, bend_hz, poly_a, poly_b,
+                   mod_b, expr_ok, apart && steal_ok && sound_ok && chan_ok && vel_ok && expr_ok);
             song_default();
             midi_reset();
+        }
+
+        /* the MIDI page: START + B on a SOUND control, then a CC learns it;
+         * the CC then moves it on the voice of the channel it comes on;
+         * kept in midi.cfg and read back */
+        {
+            song_default();
+            MidiCfg keep = midi_cfg;
+            for (int i = 0; i < PAGE_COUNT && ui_page() != PAGE_SOUND; i++)
+                press(BTN_R1);
+            for (int i = 0; i < 12; i++)
+                press(BTN_UP);
+            press(BTN_DOWN); /* the NOTE row ... */
+            press(BTN_DOWN), press(BTN_DOWN), press(BTN_DOWN), press(BTN_DOWN); /* ... down to BRIGHT */
+            ui_button(BTN_START, 1), press(BTN_B), ui_button(BTN_START, 0);
+            int learning = ui_midi_learning();
+            int took = ui_midi_cc(0, 40, 0); /* CC 40 comes: learned */
+            midi_cfg.vch[2] = 4;
+            int got = ui_midi_cc(3, 40, 127); /* channel 4: voice 3's BRIGHT */
+            int b3 = song.sp[2][SP_BRIGHT], b1 = song.sp[0][SP_BRIGHT];
+            ui_tick(1200); /* written */
+            midi_cfg = keep;
+            midi_cfg.bend = 7;
+            ui_midi_load();
+            int kept = midi_cfg.vch[2] == 4 && midi_cfg.bend == 2;
+            song.sp[2][SP_BRIGHT] = 50;
+            midi_cfg.vch[2] = 4;
+            ui_midi_cc(3, 40, 0);
+            int kept_map = song.sp[2][SP_BRIGHT] == 0;
+            char cp[512];
+            snprintf(cp, sizeof cp, "%s/midi.cfg", out);
+            remove(cp);
+            midi_cfg = keep;
+            while (ui_page() != PAGE_PLAY)
+                press(BTN_R1);
+            int ok = learning && took && got && b3 == 100 && b1 != 100 && kept && kept_map;
+            printf("midi learn: START+B learns %d, CC 40 taken %d, on channel 4 sets voice 3's BRIGHT %d (others %d); "
+                   "kept in midi.cfg %d, the map too %d: %d\n",
+                   learning, took, b3, b1, kept, kept_map, ok);
+            song_default();
         }
 
         { /* MIDI CC: a setting by its CC, on the selected string; the fixed CCs stay put */
