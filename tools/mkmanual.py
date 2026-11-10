@@ -639,6 +639,13 @@ def build(out):
                            "HARM (the next harmonic past halfway), FOLD, BUZZ, or OFF"),
                  ("MOD", "what the mod wheel moves, the same choice"),
                  ("BEND", "the pitch bend range, 1 to 24 semitones"),
+                 ("PLAY", "what a key does: BOTH plucks and bows while held, PLUCK only plucks (it rings on), "
+                          "BOW only bows (it swells in), STRIKE drops the mallet"),
+                 ("HOLD", "how long: SONG as PLAY MODE (RINGS while held, LATCH until let go), GATE while held, "
+                          "LATCH a key drones on and the same key again lets it go"),
+                 ("SHIFT", "every key moved, -24 to +24 semitones"),
+                 ("SNAP", "SCALE: each key moves to the nearest note of the song's scale and root"),
+                 ("POLY", "how many keys a voice plays at once, 1 to 4 (at 1, each key takes the last's place)"),
                  ("CC MAP", "each CC and what it sets. Select any control on SOUND, COMPOSE, MIX or SONG, "
                             "press " + B("START") + " + " + B("B") + " and move a knob: that CC now sets it. A "
                             "voice's control moves the voice of the channel the CC comes on (the selected one "

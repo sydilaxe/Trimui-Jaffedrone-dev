@@ -716,6 +716,7 @@ typedef struct {
     float hand_g;
     int hand_hold, hand_quiet;
     float vib_ph; /* MIDI vibrato's phase (cycles) */
+    int klatch;   /* a key voice played as a latch (its own, whatever PLAY MODE is) */
     int latched;   /* LATCH: LATCH_PLUCK or LATCH_BOW while it drones, else LATCH_OFF */
     int switching; /* SP_VOICE changed: fading out before the new voice */
 
@@ -970,6 +971,34 @@ void engine_hammer(int s)
     }
 }
 
+void engine_hammer_amp(int s, float amp)
+{
+    amp = amp < 0.05f ? 0.05f : amp > 1.f ? 1.f : amp;
+    if (s >= 0 && s < NS) {
+        str[s].hand_hold = 1;
+        if (song.on[s]) {
+            flash[s][RING_PLUCK] = 1.f;
+            string_hammer(&str[s], amp);
+        }
+    }
+    else if (s >= NS && s < NV && key_live[s])
+        KEY_RNG(string_hammer(&str[s], amp));
+}
+
+float engine_scale_snap(float note)
+{
+    const Scale *sc = cur_scale();
+    float rel = note - song.gp[GP_ROOT];
+    int o = (int)floorf(rel / 12.f);
+    float c = (rel - 12.f * o) * 100.f, best = 0.f, bd = 1e9f;
+    for (int d = 0; d <= sc->n; d++) { /* the octave above too */
+        float e = fabsf(deg_cents(sc, d) - c);
+        if (e < bd)
+            bd = e, best = deg_cents(sc, d);
+    }
+    return song.gp[GP_ROOT] + 12.f * o + best / 100.f;
+}
+
 void engine_bow(int s, int on)
 {
     if (s >= 0 && s < NV)
@@ -986,6 +1015,7 @@ int engine_latch(int s, int how)
             st->latched = LATCH_OFF;
         else {
             st->latched = how;
+            st->klatch = 1;
             if (how == LATCH_PLUCK)
                 KEY_RNG(string_pluck(st, 0.9f));
             if (how == LATCH_HAMMER)
@@ -1049,6 +1079,7 @@ void engine_key_voice(int v, int src, float note)
         for (int p = 0; p < NSP; p++)
             ex_on[v][p] = 0;
     key_src[v] = src, key_note[v] = note, key_live[v] = 1, key_quiet[v] = 0;
+    st->klatch = st->latched != LATCH_OFF; /* how it plays now: engine_latch makes it a latch */
     st->midi_set = 0; /* straight to the key's note, no glide */
 }
 
@@ -2408,7 +2439,7 @@ static void wind_setup(WindVoice *v, String *st, const int *P, float hz, float s
     v->emb = P[SP_STIFF] / 100.f;
     v->vib = P[SP_POS] / 100.f;
     v->growl = P[SP_BUZZ] / 100.f;
-    v->latch = song.gp[GP_PLAYMODE] == PLAY_LATCH;
+    v->latch = st >= str + NS ? st->klatch : song.gp[GP_PLAYMODE] == PLAY_LATCH; /* a key voice: its own */
     v->bow_k = v->latch ? latch_k(st, P, 1) : 1.f - expf(-1.f / fmaxf(0.5f * sps16 * rate_div16[P[SP_RATE]], 0.25f * sr));
     v->hand_k = 1.f - expf(-1.f / (0.15f * sr)); /* breath comes quicker than a drawn bow */
     v->hand_rel = hand_rel;
@@ -2711,6 +2742,8 @@ void engine_voices(EngineBlock *b, int frames)
         if (str[s].over) /* touched by hand: the next harmonic up */
             harm_n[s] = harm_n[s] > 0.f ? fminf(harm_n[s] + 1.f, 6.f) : 2.f;
         gate_d[s] = latch_mode ? 1.f : song.sp[q][SP_GATE] / 100.f; /* LATCH: the sound follows the latch */
+        if (s >= NS) /* a key voice: the key decides (a latch follows its bow; else its pluck rings on) */
+            gate_d[s] = str[s].klatch ? 1.f : 0.f;
         if (s < NS && song.fx[FX_AIR] > 0 && song.sp[s][SP_LISTEN] == AIR_LISTENS)
             gate_d[s] = 0.f; /* a listener is never played: nothing of its own to gate it */
     }
@@ -2752,7 +2785,8 @@ void engine_voices(EngineBlock *b, int frames)
         buzz_th[s] = 0.4f * (1.f - bz) * (1.f - bz) + 0.01f;
         buzz_k[s] = bz > 0.f ? 40.f * bz : 0.f;
         /* bow ring: the bow swells in and out over about half a step */
-        if (latch_mode) /* LATCH: the hand's latch holds the bow (see latch_k) */
+        int lm = s < NS ? latch_mode : st->klatch; /* a key voice latches on its own */
+        if (lm) /* LATCH: the hand's latch holds the bow (see latch_k) */
             st->bow_open = st->latched != LATCH_OFF;
         else if (s >= NS) /* a key voice has no rings: only the key bows it */
             st->bow_open = 0;
@@ -2762,7 +2796,7 @@ void engine_voices(EngineBlock *b, int frames)
             st->bow_open = 1;
         if (LISTENING(st)) /* never played: it only hears */
             st->bow_open = 0, st->hand = 0, st->bow_env = st->hand_env = 0.f, st->burst = 0, st->art_t = -1.f, st->hm_on = 0;
-        bow_k[s] = latch_mode ? latch_k(st, P, 0)
+        bow_k[s] = lm ? latch_k(st, P, 0)
                               : 1.f - expf(-1.f / fmaxf(0.5f * sps16 * rate_div16[P[SP_RATE]], 0.25f * sr));
         /* tone shapers: FOLD drives the output into a wavefolder, STIFF
          * sets the allpass dispersion in the loop (inharmonic, bell-like),
@@ -2837,7 +2871,7 @@ void engine_voices(EngineBlock *b, int frames)
             pv_on[s] = vkind(st->voice_was) == 2;
             if (pv_on[s]) {
                 const int *P = ep[s];
-                float h = latch_mode ? fmaxf(st->hand_env, st->bow_env) : st->hand_env;
+                float h = (s < NS ? latch_mode : st->klatch) ? fmaxf(st->hand_env, st->bow_env) : st->hand_env;
                 float bow = P[SP_BOW] / 100.f * fmaxf(st->bow_env, h) * m_bow + 0.4f * h; /* the hand presses harder */
                 st->bow_env += ((float)st->bow_open - st->bow_env) * fminf(1.f, bow_k[s] * nn);
                 st->hand_env += (HAND_T(st) - st->hand_env) * fminf(1.f, (st->hand ? hand_k : hand_rel) * nn);
@@ -3041,7 +3075,7 @@ void engine_voices(EngineBlock *b, int frames)
                  * is doing, and keeps the string singing while it is held */
                 st->bow_env += ((float)st->bow_open - st->bow_env) * bow_k[s];
                 st->hand_env += (HAND_T(st) - st->hand_env) * (st->hand ? hand_k : hand_rel);
-                float h = latch_mode ? fmaxf(st->hand_env, st->bow_env) : st->hand_env; /* a latch bows like the hand */
+                float h = (s < NS ? latch_mode : st->klatch) ? fmaxf(st->hand_env, st->bow_env) : st->hand_env; /* a latch bows like the hand */
                 float open = fmaxf(st->bow_env, h);
                 float hr = fmaxf(0.f, 1.f - st->env * 1.4f);
                 /* a bow being drawn starts darker and brightens as it bites */

@@ -2270,6 +2270,75 @@ int main(int argc, char **argv)
             midi_reset();
         }
 
+        /* how the keys play (the MIDI page): SHIFT, SNAP to the scale, PLAY BOW
+         * swelling in where a pluck starts at once, HOLD LATCH droning on
+         * after the key is let go until it comes again, POLY 1 */
+        {
+            uint64_t tk = 9000000;
+            uint8_t m[3];
+#define SEND(a, b, c) (m[0] = (uint8_t)(a), m[1] = (uint8_t)(b), m[2] = (uint8_t)(c), midi_feed(m, 3, tk += 1000))
+#define FRESH()                                                                                                       \
+    (song_default(), song.gp[GP_CHANGES] = 0, song.fx[FX_SCOUNT] = 0, song.gp[GP_DRIFT] = 0,                          \
+     song.lfo[0][LP_DEPTH] = 0, engine_init(RATE), engine_set_playing(0), midi_reset())
+#define MUTE_ALL() for (int s_ = 0; s_ < NS; s_++) song.on[s_] = 0
+            MidiCfg keep = midi_cfg;
+            FRESH();
+            MUTE_ALL();
+            midi_cfg.shift = 12;
+            SEND(0x90, 57, 100);
+            engine_render(pcm, RATE);
+            double sh_hz = hz_yin(pcm, RATE / 2, RATE / 4);
+            SEND(0x80, 57, 0);
+            midi_cfg.shift = 0;
+            /* SNAP: a key between two of the scale's notes moves onto one; one on it stays */
+            float on = (float)song.gp[GP_ROOT], off = on + 1.f, sn_on = engine_scale_snap(on), sn_off = engine_scale_snap(off);
+            int snap_ok = fabsf(sn_on - on) < 1e-3f && fabsf(sn_off - off) > 0.2f && fabsf(sn_off - off) <= 1.f;
+            /* PLAY BOW against PLUCK: the first 30 ms */
+            double first[2];
+            for (int b = 0; b < 2; b++) {
+                FRESH();
+                MUTE_ALL();
+                midi_cfg.play = b ? KP_BOW : KP_PLUCK;
+                SEND(0x90, 57, 110);
+                engine_render(pcm, RATE * 3 / 100);
+                first[b] = rms_of(pcm, 0, RATE * 3 / 100);
+                SEND(0x80, 57, 0);
+            }
+            midi_cfg.play = KP_BOTH;
+            int bow_ok = first[1] < 0.3 * first[0];
+            /* HOLD LATCH, in RINGS: drones after the key is let go; the key again lets it go */
+            FRESH();
+            MUTE_ALL();
+            midi_cfg.hold = KH_LATCH, midi_cfg.play = KP_BOW;
+            int lv = (SEND(0x90, 57, 100), midi_voice_of(0, 57));
+            SEND(0x80, 57, 0);
+            engine_render(pcm, RATE * 3);
+            double latched = rms_of(pcm, RATE * 2, RATE / 2);
+            SEND(0x90, 57, 100); /* again: let go */
+            SEND(0x80, 57, 0);
+            for (int i = 0; i < 80 && engine_key_sounding(lv); i++)
+                engine_render(pcm, RATE / 4);
+            int latch_ok = latched > 100.0 && !engine_key_sounding(lv);
+            midi_cfg.hold = KH_SONG, midi_cfg.play = KP_BOTH;
+            /* POLY 1: a second key takes the first one's place */
+            FRESH();
+            midi_cfg.poly = 1;
+            int p1 = (SEND(0x90, 60, 100), midi_voice_of(0, 60)), p2 = (SEND(0x90, 64, 100), midi_voice_of(0, 64));
+            int poly_ok = p1 == p2 && midi_voice_of(0, 60) < 0;
+            SEND(0x80, 64, 0);
+            midi_cfg = keep;
+#undef SEND
+#undef FRESH
+#undef MUTE_ALL
+            printf("midi key play: SHIFT +12 %.1f Hz (want 440), SNAP %.2f -> %.2f, %.2f stays (1: %d), PLAY BOW "
+                   "first 30 ms %.0f against a pluck's %.0f (1: %d), HOLD LATCH drones %.0f after the key, let go "
+                   "by it again (1: %d), POLY 1 one voice (1: %d): %d\n",
+                   sh_hz, off, sn_off, on, snap_ok, first[1], first[0], bow_ok, latched, latch_ok, poly_ok,
+                   fabs(sh_hz - 440.0) < 4.0 && snap_ok && bow_ok && latch_ok && poly_ok);
+            song_default();
+            midi_reset();
+        }
+
         /* the MIDI page: START + B on a SOUND control, then a CC learns it;
          * the CC then moves it on the voice of the channel it comes on;
          * kept in midi.cfg and read back */

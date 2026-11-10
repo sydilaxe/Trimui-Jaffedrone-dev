@@ -86,7 +86,13 @@ static float pb[16];    /* pitch bend, semitones */
 static int sustain[16];
 static float modw[16];  /* CC1, 0 .. 1 */
 static float press[16]; /* channel pressure, 0 .. 1 (-1: none yet) */
-#define PER_VOICE 4     /* the most keys one voice plays at once */
+/* the most keys one voice plays at once: the MIDI page's POLY (1-4) */
+static int per_voice(void) { return midi_cfg.poly < 1 ? 1 : midi_cfg.poly > 4 ? 4 : midi_cfg.poly; }
+/* a key drones until let go (HOLD LATCH, or HOLD SONG in PLAY MODE LATCH) */
+static int key_latches(void)
+{
+    return midi_cfg.hold == KH_LATCH || (midi_cfg.hold == KH_SONG && song.gp[GP_PLAYMODE] == PLAY_LATCH);
+}
 
 /* engine_position read without the engine's lock: two variables, so a read
  * may catch them mid-change; the middle of three is always whole */
@@ -149,7 +155,7 @@ static int pick_key(int ch, int note, int src)
             if (key[k].on_us < oldest)
                 oldest = key[k].on_us, best = k;
         }
-    if (n >= PER_VOICE)
+    if (n >= per_voice())
         return best;
     for (int k = 0; k < NKEY; k++)
         if (!key[k].held && !engine_key_sounding(NS + k))
@@ -182,10 +188,8 @@ static void let_go(int k, uint64_t t)
         return;
     h->held = h->sustained = 0;
     h->off_us = t;
-    if (song.gp[GP_PLAYMODE] == PLAY_LATCH) {
-        if (engine_latch_state(v) != LATCH_OFF)
-            engine_latch(v, LATCH_OFF); /* it fades over its RELEASE */
-    }
+    if (engine_latch_state(v) != LATCH_OFF)
+        engine_latch(v, LATCH_OFF); /* it fades over its RELEASE */
     else
         engine_bow(v, 0);
 }
@@ -197,6 +201,12 @@ static void note_on(int ch, int note, int vel, uint64_t t)
     int src = midi_channel_voice(ch);
     if (src < 0)
         return;
+    if (midi_cfg.hold == KH_LATCH) /* HOLD LATCH: the droning key again lets it go */
+        for (int k = 0; k < NKEY; k++)
+            if (key[k].held && key[k].note == note && key[k].ch == ch) {
+                let_go(k, t);
+                return;
+            }
     int k = pick_key(ch, note, src);
     if (k < 0)
         return;
@@ -207,23 +217,38 @@ static void note_on(int ch, int note, int vel, uint64_t t)
     h->note = note, h->ch = ch, h->vel = vel, h->src = src;
     h->held = 1, h->sustained = 0, h->poly = -1.f;
     h->on_us = t;
-    engine_key_voice(v, src, (float)note);
+    /* its pitch: SHIFT semitones on, then SNAP to the song's scale */
+    float pitch = (float)(note + midi_cfg.shift);
+    if (midi_cfg.snap)
+        pitch = engine_scale_snap(pitch);
+    engine_key_voice(v, src, pitch);
     express(k);
-    int vh = vel_heard(vel);
-    if (song.gp[GP_PLAYMODE] == PLAY_LATCH) {
-        if (engine_latch_state(v) == LATCH_OFF) /* a soft key swells in with the bow, a firm one plucks */
-            engine_latch(v, vh <= 48 ? LATCH_BOW : LATCH_PLUCK);
+    int vh = vel_heard(vel), pl = midi_cfg.play;
+    float amp = 0.25f + 0.75f * vh / 127.f;
+    if (key_latches()) {
+        if (engine_latch_state(v) == LATCH_OFF) /* BOTH: a soft key swells in with the bow, a firm one plucks */
+            engine_latch(v, pl == KP_BOW      ? LATCH_BOW
+                            : pl == KP_STRIKE ? LATCH_HAMMER
+                            : pl == KP_PLUCK  ? LATCH_PLUCK
+                            : vh <= 48        ? LATCH_BOW
+                                              : LATCH_PLUCK);
         else if (again)
             engine_pluck_amp(v, vh / 127.f);
     }
     else {
-        engine_pluck_amp(v, 0.25f + 0.75f * vh / 127.f);
-        engine_bow(v, 1);
+        if (pl == KP_STRIKE)
+            engine_hammer_amp(v, amp);
+        else if (pl != KP_BOW)
+            engine_pluck_amp(v, amp);
+        if (pl == KP_BOTH || pl == KP_BOW)
+            engine_bow(v, 1);
     }
 }
 
 static void note_off(int ch, int note, uint64_t t)
 {
+    if (midi_cfg.hold == KH_LATCH) /* a latched key drones on: the key again lets it go */
+        return;
     for (int k = 0; k < NKEY; k++) {
         Key *h = &key[k];
         if (h->held && h->note == note && h->ch == ch) {

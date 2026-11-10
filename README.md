@@ -338,7 +338,8 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
   reverb and binaural. Under AURA: the MIDI clock's **MIDI** and **START** settings (see
   [USB: MIDI and audio](#usb-midi-and-audio)).
 - **MIDI:** which channel each voice listens on, how the keys play (their channel, velocity, what
-  aftertouch and the mod wheel move, the bend range) and the CC map, with MIDI learn (see
+  aftertouch and the mod wheel move, the bend range, pluck or bow, hold or latch, shift, snap to the scale,
+  how many at once) and the CC map, with MIDI learn (see
   [USB: MIDI and audio](#usb-midi-and-audio)).
 
 ## Song: presets, chord memory, key
@@ -490,6 +491,13 @@ are found as they are plugged in, and a message names each one.
     and blown). **VEL** sets how much velocity matters (100 as struck, 0 every key alike). In LATCH a key
     drones (a soft key swells in with the bow, a firm one plucks) until it is let go, then fades over the
     voice's RELEASE.
+  - **How the keys play** (the MIDI page's third row): **PLAY** BOTH (pluck and bow, as above), PLUCK
+    (a pluck that rings on), BOW (a bow only, swelling in) or STRIKE (the mallet); **HOLD** SONG (as PLAY
+    MODE), GATE (always while held) or LATCH (a key starts its note droning, the same key again lets it
+    go); **SHIFT** moves every key -24 to +24 semitones; **SNAP** SCALE moves each key to the nearest note
+    of the song's scale and root; **POLY** is how many keys a voice plays at once (1-4; at 1 each key
+    takes the last one's place). Together with the voices' channels, Jaffedrone becomes a sound engine for
+    an outside controller or sequencer.
   - Keys sound with the drone stopped and never start it.
   - `JD_MIDI_NOTES=CHANNELS` in launch.sh gives voices 1-5 channels 1-5, until the MIDI page sets them.
 - **Aftertouch** (of a key, or of the channel) and the **mod wheel** (CC1): each moves what the MIDI page's

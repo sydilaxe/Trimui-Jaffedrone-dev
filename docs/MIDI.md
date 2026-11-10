@@ -10,7 +10,7 @@ from any page.
 |---|---|---|---|
 | Basic channel | none | 1-16 (any) | Each voice can have a channel of its own (the MIDI page); every other channel (or the KEYS channel, when set) plays the voice selected on PLAY. `JD_MIDI_NOTES=CHANNELS` gives voices 1-5 channels 1-5 until the page sets them. |
 | Mode | none | Omni on, poly | |
-| Note number | none | 0-127 | The channel's voice at the key's pitch, on key voices of their own (eight in all, four a voice; a fifth key on a voice takes the place of its key held longest). Keys sound with the drone stopped and never start it. |
+| Note number | none | 0-127 | The channel's voice at the key's pitch (plus SHIFT, snapped to the song's scale with SNAP), on key voices of their own (eight in all, up to POLY a voice; one more key on a voice takes the place of its key held longest). PLAY: pluck and bow, pluck, bow or strike; HOLD: as PLAY MODE, while held, or latched (the key again lets go). Keys sound with the drone stopped and never start it. |
 | Velocity: note on | none | yes | How hard the note is plucked, and the bow's swell; VEL on the MIDI page sets how much it matters. |
 | Velocity: note off | none | no | |
 | Aftertouch: key | none | yes | Moves what TOUCH picks (below), on that key's note only. |

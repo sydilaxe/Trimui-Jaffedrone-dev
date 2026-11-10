@@ -249,6 +249,8 @@ void engine_unlatch_all(void); /* every string lets go */
 void engine_key_voice(int v, int src, float note);
 int engine_key_sounding(int v);
 void engine_key_vibrato(int v, float semitones); /* MIDI vibrato on key voice v, this deep */
+void engine_hammer_amp(int s, float amp); /* engine_hammer this hard (0 .. 1), strings and key voices */
+float engine_scale_snap(float note);      /* the nearest note of the song's scale (root and tuning) */
 int engine_latch_state(int v); /* LATCH: how voice v (a string or a key voice) drones now */
 void engine_next_chord(void);  /* the next chord of the progression */
 void engine_set_scale(int sc); /* retune: each string moves to the nearest degree */

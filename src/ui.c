@@ -338,7 +338,9 @@ static void preset_clear(int i)
  * for each CC, the defaults below or learned (START + B on any control,
  * then move a knob). All of it belongs to the Brick: kept in midi.cfg, not
  * in songs or presets. */
-MidiCfg midi_cfg = {{0, 0, 0, 0, 0}, 0, 100, MT_BOW, MT_BOW, 2};
+MidiCfg midi_cfg = {{0, 0, 0, 0, 0}, 0, 100, MT_BOW, MT_BOW, 2, KP_BOTH, KH_SONG, 0, 0, 4};
+static const char *const kp_names[NKP] = {"BOTH", "PLUCK", "BOW", "STRIKE"};
+static const char *const kh_names[NKH] = {"SONG", "GATE", "LATCH"};
 static const char *const mt_names[NMT] = {"OFF", "BOW", "TONE", "SWELL", "VIBRATO", "PITCH", "HARM", "FOLD", "BUZZ"};
 const char *midi_target_name(int t) { return t >= 0 && t < NMT ? mt_names[t] : "?"; }
 int midi_channel_voice(int ch)
@@ -351,10 +353,11 @@ int midi_channel_voice(int ch)
     return -1;
 }
 
-enum { M_VCH, M_KEYS = M_VCH + NS, M_VEL, M_AT, M_MOD, M_BEND, NM };
+enum { M_VCH, M_KEYS = M_VCH + NS, M_VEL, M_AT, M_MOD, M_BEND, M_PLAY, M_HOLD, M_SHIFT, M_SNAP, M_POLY, NM };
 static const ParamDef m_defs[NM] = {{"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16},
                                     {"KEYS", 0, 16}, {"VEL", 0, 100}, {"TOUCH", 0, NMT - 1},
-                                    {"MOD", 0, NMT - 1}, {"BEND", 1, 24}};
+                                    {"MOD", 0, NMT - 1}, {"BEND", 1, 24}, {"PLAY", 0, NKP - 1},
+                                    {"HOLD", 0, NKH - 1}, {"SHIFT", -24, 24}, {"SNAP", 0, 1}, {"POLY", 1, 4}};
 static int *m_ref(int b)
 {
     switch (b) {
@@ -363,13 +366,18 @@ static int *m_ref(int b)
     case M_AT: return &midi_cfg.at_to;
     case M_MOD: return &midi_cfg.mod_to;
     case M_BEND: return &midi_cfg.bend;
+    case M_PLAY: return &midi_cfg.play;
+    case M_HOLD: return &midi_cfg.hold;
+    case M_SHIFT: return &midi_cfg.shift;
+    case M_SNAP: return &midi_cfg.snap;
+    case M_POLY: return &midi_cfg.poly;
     default: return &midi_cfg.vch[b - M_VCH];
     }
 }
 #define MIDI_Y (BODY_Y + 20)
-#define MAP_Y (BODY_Y + 132)
+#define MAP_Y (BODY_Y + 162)
 #define MAP_COLS 3
-#define MAP_ROWS 11
+#define MAP_ROWS 9
 #define MAP_CW 213
 #define MAP_RH 24
 static int map_top; /* the first row of the map shown */
@@ -529,8 +537,9 @@ static void midi_save(void)
     fprintf(f, "vch");
     for (int s = 0; s < NS; s++)
         fprintf(f, " %d", midi_cfg.vch[s]);
-    fprintf(f, "\nkeys %d\nvel %d\nat %d\nmod %d\nbend %d\nmaps %d\n", midi_cfg.keys_ch, midi_cfg.vel, midi_cfg.at_to,
-            midi_cfg.mod_to, midi_cfg.bend, nccm);
+    fprintf(f, "\nkeys %d\nvel %d\nat %d\nmod %d\nbend %d\nplay %d\nhold %d\nshift %d\nsnap %d\npoly %d\nmaps %d\n",
+            midi_cfg.keys_ch, midi_cfg.vel, midi_cfg.at_to, midi_cfg.mod_to, midi_cfg.bend, midi_cfg.play, midi_cfg.hold,
+            midi_cfg.shift, midi_cfg.snap, midi_cfg.poly, nccm);
     for (int i = 0; i < nccm; i++)
         fprintf(f, "map %d %d %d %d\n", ccm[i].cc, ccm[i].kind, ccm[i].a, ccm[i].b);
     fclose(f);
@@ -563,6 +572,16 @@ void ui_midi_load(void)
             midi_cfg.mod_to = clampi(a[0], 0, NMT - 1);
         else if (sscanf(ln, "bend %d", &a[0]) == 1)
             midi_cfg.bend = clampi(a[0], 1, 24);
+        else if (sscanf(ln, "play %d", &a[0]) == 1)
+            midi_cfg.play = clampi(a[0], 0, NKP - 1);
+        else if (sscanf(ln, "hold %d", &a[0]) == 1)
+            midi_cfg.hold = clampi(a[0], 0, NKH - 1);
+        else if (sscanf(ln, "shift %d", &a[0]) == 1)
+            midi_cfg.shift = clampi(a[0], -24, 24);
+        else if (sscanf(ln, "snap %d", &a[0]) == 1)
+            midi_cfg.snap = clampi(a[0], 0, 1);
+        else if (sscanf(ln, "poly %d", &a[0]) == 1)
+            midi_cfg.poly = clampi(a[0], 1, 4);
         else if (sscanf(ln, "maps %d", &a[0]) == 1)
             maps = a[0];
         else if (same && n < NCCM && sscanf(ln, "map %d %d %d %d", &a[0], &a[1], &a[2], &a[3]) == 4 && a[0] >= 0 &&
@@ -624,6 +643,8 @@ static void layout(int pg)
             cell(s * cw + 3, MIDI_Y, cw - 6, 31, CK_M, 0, M_VCH + s);
         for (int i = 0; i < 5; i++)
             cell(i * cw + 3, MIDI_Y + 52, cw - 6, 31, CK_M, 0, M_KEYS + i);
+        for (int i = 0; i < 5; i++)
+            cell(i * cw + 3, MIDI_Y + 86, cw - 6, 31, CK_M, 0, M_PLAY + i);
         ccm_ready();
         if (map_top > 0 && map_top * MAP_COLS >= nccm)
             map_top = nccm > 0 ? (nccm - 1) / MAP_COLS : 0;
@@ -687,6 +708,14 @@ static void cell_format(const Cell *c, char *v, int n)
             snprintf(v, n, "%s", midi_target_name(x));
         else if (c->b == M_BEND)
             snprintf(v, n, "+-%d", x);
+        else if (c->b == M_PLAY)
+            snprintf(v, n, "%s", kp_names[clampi(x, 0, NKP - 1)]);
+        else if (c->b == M_HOLD)
+            snprintf(v, n, "%s", kh_names[clampi(x, 0, NKH - 1)]);
+        else if (c->b == M_SHIFT)
+            snprintf(v, n, x > 0 ? "+%d" : "%d", x);
+        else if (c->b == M_SNAP)
+            snprintf(v, n, "%s", x ? "SCALE" : "OFF");
         else
             snprintf(v, n, "%d", x);
         break;
@@ -1464,74 +1493,46 @@ static void draw_logo_a(float x, float y, float h, float edge, uint32_t fill, ui
     }
 }
 
-static void draw_logo(float x, float y, float h, float edge, uint32_t fill, uint32_t col)
-{
-    draw_logo_a(x, y, h, edge, fill, col, 255);
-}
-
 static void draw_header(void)
 {
-    int x0_tabs;
     gfx_fill(0, 0, SCREEN_W, HEADER_H, C_PANEL);
     /* the roofline: one copper edge across the band */
-    slant(150, HEADER_H - 3, SCREEN_W, HEADER_H - 16, 3, C_COPPER);
-    /* the wordmark on a cedar board, its top cut to the two roofs */
-    {
-        float h = 26.f, k = h / LOGO_H, lx = 14.f, ly = 9.f, w = LOGO_W * k;
-        float xy[10] = {0, 0, lx + LOGO_VALLEY_X * k, ly - 5 + LOGO_VALLEY_Y * k, lx + w + 12, 0, lx + w + 4, HEADER_H - 6, 0,
-                        HEADER_H - 6};
-        xy[1] = ly - 5 + (LOGO_ROOF_L - (LOGO_VALLEY_Y - LOGO_ROOF_L) * lx / (LOGO_VALLEY_X * k)) * k;
-        xy[5] = ly - 5 + LOGO_ROOF_R * k;
-        gfx_poly(xy, 5, C_CEDARWOOD);
-        draw_logo(lx, ly, h, 1.f, C_SLATE, C_SLATE_D);
-        x0_tabs = (int)(lx + w + 22);
-    }
-    int x = x0_tabs;
+    slant(0, HEADER_H - 3, SCREEN_W, HEADER_H - 16, 3, C_COPPER);
+    /* the six pages, as tabs across the left */
+    int x = 10;
     for (int p = 0; p < PAGE_COUNT; p++) {
-        int w = gfx_text_w(page_names[p], FONT_SMALL) + 8;
-        para(x, 10, w, 24, 5, p == page ? C_COPPER : C_PANEL2);
-        gfx_text(x + 6, 11, page_names[p], p == page ? 0x000000 : C_DIM, FONT_SMALL);
-        x += w + 3;
+        int w = gfx_text_w(page_names[p], FONT_SMALL) + 16;
+        para(x, 10, w, 24, 6, p == page ? C_COPPER : C_PANEL2);
+        gfx_text(x + 10, 11, page_names[p], p == page ? 0x000000 : C_DIM, FONT_SMALL);
+        x += w + 6;
     }
+    /* the key and tempo; left of them the beat, Wi-Fi sync and the log */
     char s[24], nm[8];
     note_name(song.gp[GP_ROOT], nm, sizeof nm);
     snprintf(s, sizeof s, "%s %d", nm, song.gp[GP_BPM]);
-    int sy = song.gp[GP_SYNC] != SYNC_OFF, lg = jdlog_level() != LOG_OFF, ix;
-    uint32_t lgc = jdlog_level() == LOG_DETAIL ? C_SEA : C_DIM;
-    if (!sy && !lg) { /* the key and tempo, large */
-        int bw = gfx_text_w(s, FONT_LARGE);
-        gfx_text(SCREEN_W - 10 - bw, 4, s, C_SAND, FONT_LARGE);
-        ix = SCREEN_W - 10 - bw - 30;
-    }
-    else { /* with Wi-Fi sync or the log: two small lines, beside the six tabs */
-        int bw = gfx_text_w(s, FONT_SMALL), x1 = SCREEN_W - 10 - bw, x2 = SCREEN_W - 10, left;
-        gfx_text(x1, 2, s, C_SAND, FONT_SMALL);
-        if (sy) {
-            const SyncStatus *ss = sync_status();
-            int linked = ss->leading || ss->have_leader;
-            const char *t = ss->leading ? "LEAD" : ss->have_leader ? "FOLLOW" : "SYNC";
-            int w = gfx_text_w(t, FONT_SMALL) + 14;
-            x2 -= w;
-            para(x2, 23, w, 20, 5, linked ? C_SEA : C_PANEL2);
-            gfx_text(x2 + 8, 23, t, linked ? 0x000000 : C_DIM, FONT_SMALL);
-        }
-        if (lg && sy) { /* on the first line, before the tempo */
-            x1 -= gfx_text_w("LOG", FONT_SMALL) + 8;
-            gfx_text(x1, 2, "LOG", lgc, FONT_SMALL);
-        }
-        else if (lg) {
-            x2 -= gfx_text_w("LOG", FONT_SMALL);
-            gfx_text(x2, 23, "LOG", lgc, FONT_SMALL);
-        }
-        left = x1 < x2 ? x1 : x2;
-        ix = left - 24;
-    }
+    int bw = gfx_text_w(s, FONT_LARGE);
+    gfx_text(SCREEN_W - 10 - bw, 4, s, C_SAND, FONT_LARGE);
+    int ix = SCREEN_W - 10 - bw - 30;
     if (live.playing) {
         float ph = 1.f - fmodf(now_ms / 1000.f * engine_bpm() / 60.f, 1.f);
         gfx_disc(ix + 8, 24, 5.f + 4.f * ph * ph, C_SEA);
     }
     else
         gfx_ring(ix + 8, 24, 7.f, 2.f, C_DIM);
+    int lx = ix - 8;
+    if (song.gp[GP_SYNC] != SYNC_OFF) {
+        const SyncStatus *ss = sync_status();
+        int linked = ss->leading || ss->have_leader;
+        const char *t = ss->leading ? "LEAD" : ss->have_leader ? "FOLLOW" : "SYNC";
+        int w = gfx_text_w(t, FONT_SMALL) + 16;
+        lx -= w + 6;
+        para(lx, 12, w, 22, 6, linked ? C_SEA : C_PANEL2);
+        gfx_text(lx + 11, 13, t, linked ? 0x000000 : C_DIM, FONT_SMALL);
+    }
+    if (jdlog_level() != LOG_OFF) {
+        lx -= gfx_text_w("LOG", FONT_SMALL) + 10;
+        gfx_text(lx, 13, "LOG", jdlog_level() == LOG_DETAIL ? C_SEA : C_DIM, FONT_SMALL);
+    }
 }
 
 static void draw_footer(void)
@@ -1922,7 +1923,7 @@ static void draw_midi(void)
 {
     layout(page);
     gfx_text(8, BODY_Y, "EACH VOICE'S CHANNEL (KEYS: THE SELECTED VOICE)", C_DIM, FONT_SMALL);
-    gfx_text(8, MIDI_Y + 34, "THE KEYS: CHANNEL, VELOCITY, AFTERTOUCH, MOD WHEEL, BEND", C_DIM, FONT_SMALL);
+    gfx_text(8, MIDI_Y + 34, "HOW THE KEYS PLAY", C_DIM, FONT_SMALL);
     char hd[64];
     snprintf(hd, sizeof hd, "CC MAP  %d  (START+B ON ANY CONTROL: LEARN)", nccm);
     gfx_text(8, MAP_Y - 22, hd, learn_on ? C_RED : C_DIM, FONT_SMALL);
