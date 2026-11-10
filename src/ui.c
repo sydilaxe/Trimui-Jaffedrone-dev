@@ -31,8 +31,8 @@
 #define C_CEDARWOOD 0xb26a3e /* the ceiling boards */
 #define C_SLATE 0x4a525e      /* the wordmark */
 #define C_SLATE_D 0x2c323c
-#define HEADER_H 46
-#define BODY_Y 58
+#define HEADER_H 30
+#define BODY_Y 40
 #define FOOTER_Y 456
 
 static void nop(void) {}
@@ -222,20 +222,20 @@ static void cell(int x, int y, int w, int h, int kind, int a, int b)
 
 /* SOUND: per-string tone above, the shared resonance below */
 static const int sound_rows[9] = {SP_NOTE, SP_HARM, SP_BOW, SP_DECAY, SP_BRIGHT, SP_FOLD, SP_STIFF, SP_POS, SP_BUZZ};
-#define SOUND_Y 118
-#define SOUND_RH 29
-#define ENGINE_Y 84
+#define SOUND_Y (BODY_Y + 60)
+#define SOUND_RH 31
+#define ENGINE_Y (BODY_Y + 26)
 #define BAND_Y (SOUND_Y + 9 * SOUND_RH + 4)
 /* COMPOSE: the progression on the left, its controls on the right */
 static const int comp_a[7] = {GP_SCALE, GP_ROOT, GP_MODE, GP_CHANGES, GP_CHANCE, GP_GLIDE, GP_BPM};
 static const int comp_b[7] = {GP_MOTION, GP_HOME, GP_COLOR, GP_EVOLVE, GP_RELATE, GP_DRIFT, GP_SYNC};
 #define COMP_X 268
 #define COMP_CW 184
-#define LFO_Y 318
+#define LFO_Y (BODY_Y + 260)
 /* MIX: a strip per string (with AURA: playing or listening), master, then
  * AURA, delay, reverb and binaural */
-#define MIX_FX_Y 276
-#define MIX_FXC_Y 344
+#define MIX_FX_Y (BODY_Y + 218)
+#define MIX_FXC_Y (BODY_Y + 286)
 #define MIX_FXW 160
 
 static void layout(int pg);
@@ -328,9 +328,9 @@ static void preset_clear(int i)
     slots_read = 0;
 }
 
-#define SLOT_Y 82
-#define PROGT_Y 230
-#define SONGC_Y 304
+#define SLOT_Y (BODY_Y + 24)
+#define PROGT_Y (BODY_Y + 172)
+#define SONGC_Y (BODY_Y + 246)
 
 /* ------------------------------------------------------------- MIDI page
  * Which channel each voice listens on, the keys' channel, velocity,
@@ -377,7 +377,7 @@ static int *m_ref(int b)
 #define MIDI_Y (BODY_Y + 20)
 #define MAP_Y (BODY_Y + 162)
 #define MAP_COLS 3
-#define MAP_ROWS 9
+#define MAP_ROWS ((FOOTER_Y - MAP_Y) / MAP_RH)
 #define MAP_CW 213
 #define MAP_RH 24
 static int map_top; /* the first row of the map shown */
@@ -1501,45 +1501,45 @@ static void draw_logo_a(float x, float y, float h, float edge, uint32_t fill, ui
     }
 }
 
+/* the header: one thin band, the pages as tabs on the left, the key and
+ * tempo on the right with the beat, Wi-Fi sync and the log beside them */
 static void draw_header(void)
 {
     gfx_fill(0, 0, SCREEN_W, HEADER_H, C_PANEL);
-    /* the roofline: one copper edge across the band */
-    slant(0, HEADER_H - 3, SCREEN_W, HEADER_H - 16, 3, C_COPPER);
-    /* the six pages, as tabs across the left */
-    int x = 10;
+    /* the roofline: one copper edge along the band's foot */
+    slant(0, HEADER_H - 2, SCREEN_W, HEADER_H - 6, 2, C_COPPER);
+    int x = 8;
     for (int p = 0; p < PAGE_COUNT; p++) {
         int w = gfx_text_w(page_names[p], FONT_SMALL) + 16;
-        para(x, 10, w, 24, 6, p == page ? C_COPPER : C_PANEL2);
-        gfx_text(x + 10, 11, page_names[p], p == page ? 0x000000 : C_DIM, FONT_SMALL);
-        x += w + 6;
+        para(x, 3, w, 21, 5, p == page ? C_COPPER : C_PANEL2);
+        gfx_text(x + 9, 2, page_names[p], p == page ? 0x000000 : C_DIM, FONT_SMALL);
+        x += w + 5;
     }
-    /* the key and tempo; left of them the beat, Wi-Fi sync and the log */
     char s[24], nm[8];
     note_name(song.gp[GP_ROOT], nm, sizeof nm);
-    snprintf(s, sizeof s, "%s %d", nm, song.gp[GP_BPM]);
-    int bw = gfx_text_w(s, FONT_LARGE);
-    gfx_text(SCREEN_W - 10 - bw, 4, s, C_SAND, FONT_LARGE);
-    int ix = SCREEN_W - 10 - bw - 30;
+    snprintf(s, sizeof s, "%s  %d BPM", nm, song.gp[GP_BPM]);
+    int bw = gfx_text_w(s, FONT_SMALL);
+    gfx_text(SCREEN_W - 10 - bw, 2, s, C_SAND, FONT_SMALL);
+    int ix = SCREEN_W - 10 - bw - 24;
     if (live.playing) {
         float ph = 1.f - fmodf(now_ms / 1000.f * engine_bpm() / 60.f, 1.f);
-        gfx_disc(ix + 8, 24, 5.f + 4.f * ph * ph, C_SEA);
+        gfx_disc(ix + 8, 13, 4.f + 3.f * ph * ph, C_SEA);
     }
     else
-        gfx_ring(ix + 8, 24, 7.f, 2.f, C_DIM);
-    int lx = ix - 8;
+        gfx_ring(ix + 8, 13, 6.f, 2.f, C_DIM);
+    int lx = ix - 6;
     if (song.gp[GP_SYNC] != SYNC_OFF) {
         const SyncStatus *ss = sync_status();
         int linked = ss->leading || ss->have_leader;
         const char *t = ss->leading ? "LEAD" : ss->have_leader ? "FOLLOW" : "SYNC";
         int w = gfx_text_w(t, FONT_SMALL) + 16;
         lx -= w + 6;
-        para(lx, 12, w, 22, 6, linked ? C_SEA : C_PANEL2);
-        gfx_text(lx + 11, 13, t, linked ? 0x000000 : C_DIM, FONT_SMALL);
+        para(lx, 3, w, 21, 5, linked ? C_SEA : C_PANEL2);
+        gfx_text(lx + 9, 2, t, linked ? 0x000000 : C_DIM, FONT_SMALL);
     }
     if (jdlog_level() != LOG_OFF) {
         lx -= gfx_text_w("LOG", FONT_SMALL) + 10;
-        gfx_text(lx, 13, "LOG", jdlog_level() == LOG_DETAIL ? C_SEA : C_DIM, FONT_SMALL);
+        gfx_text(lx, 2, "LOG", jdlog_level() == LOG_DETAIL ? C_SEA : C_DIM, FONT_SMALL);
     }
 }
 

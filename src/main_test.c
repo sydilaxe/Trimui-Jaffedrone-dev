@@ -3213,15 +3213,13 @@ int main(int argc, char **argv)
         char pp[512];
         snprintf(pp, sizeof pp, "%s/preset_01.jds", out);
         song_save(pp);
-        for (int i = 0; i < PAGE_COUNT - 2; i++)
+        while (ui_page() != PAGE_SONG)
             next_page(); /* SOUND -> SONG */
         ui_set_dir(out);
         shot(out, "song", fb);
-        next_page(); /* back to PLAY */
-        next_page();
     }
-    for (int i = 0; i < PAGE_COUNT - 1; i++)
-        next_page();
+    while (ui_page() != PAGE_PLAY)
+        next_page(); /* back to PLAY */
     snprintf(path, sizeof path, "%s/wind.wav", out);
     {
         song_default();
