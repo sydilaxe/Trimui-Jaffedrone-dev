@@ -437,8 +437,8 @@ def build(out):
     s += [Paragraph("LATCH: hold each string yourself", H1),
           Paragraph("In LATCH the rings rest and every string is silent until you play it. A string you pluck "
                     "or bow keeps droning, with no need to hold the button, until you play it again; then it "
-                    "fades over its own RELEASE. The drone needn't be started: stopped (" + B("START") + "), a "
-                    "droning string drones on until you let it go.", P),
+                    "fades over its own RELEASE. The drone needn't be started; stopping it (" + B("START") + ") lets "
+                    "every latched string go.", P),
           side(Brick("latch", {"START": 1, "A": 5, "LEFT": 2, "RIGHT": 2, "L2": 3, "R2": 3, "UP": 4,
                                "DOWN": 4, "B": 6, "X": 7, "Y": 7}),
                table([(num(1), B("START") + " + " + B("A"), "switch PLAY MODE between RINGS and LATCH (also on "

@@ -1839,7 +1839,17 @@ int main(int argc, char **argv)
         engine_unlatch_all();
         song.gp[GP_PLAYMODE] = PLAY_RINGS;
         engine_render(pcm, RATE * 3);
-        int stopped_ok = quiet0 < 1.0 && pl > 100.0 && dr > 100.0 && still_stopped;
+        /* with the drone playing, a START tap stops it and lets the latched string go */
+        song.gp[GP_PLAYMODE] = PLAY_LATCH;
+        engine_set_playing(1);
+        ui_tick(300);
+        press(BTN_R2);
+        int was_latched = live.latch[ui_selected_string()] != LATCH_OFF;
+        press(BTN_START);
+        int start_lets_go = was_latched && live.latch[ui_selected_string()] == LATCH_OFF && !live.playing;
+        song.gp[GP_PLAYMODE] = PLAY_RINGS;
+        engine_render(pcm, RATE * 3);
+        int stopped_ok = quiet0 < 1.0 && pl > 100.0 && dr > 100.0 && still_stopped && start_lets_go;
         /* RINGS: R2 held bows; R2 + up (TONE) is an edit: the bow lifts while R2 is still held */
         engine_set_playing(1);
         ui_tick(300);
@@ -1852,9 +1862,9 @@ int main(int argc, char **argv)
         ui_button(BTN_R2, 0);
         int combo_ok = bowing_env > 0.2f && lifted_env < 0.02f;
         engine_set_playing(0);
-        printf("stopped: silent %.0f, L2 plucks %.0f, LATCH R2 drones %.0f, the drone still stopped (1: %d); R2 + up "
-               "lifts the bow %.2f -> %.2f (1: %d)\n",
-               quiet0, pl, dr, stopped_ok, bowing_env, lifted_env, combo_ok);
+        printf("stopped: silent %.0f, L2 plucks %.0f, LATCH R2 drones %.0f, START stops the latch %d, the drone still "
+               "stopped (1: %d); R2 + up lifts the bow %.2f -> %.2f (1: %d)\n",
+               quiet0, pl, dr, start_lets_go, stopped_ok, bowing_env, lifted_env, combo_ok);
         printf("shoulders: LATCH R2 bows at once %d, used for an edit put back %d, a tap drones %d, again lets go %d; "
                "R1 page %d -> %d, L1 back %d: %d\n",
                on_press, undone, tap, again, pg, next, back,

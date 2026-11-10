@@ -231,8 +231,9 @@ strings, and **LATCH**, where the rings rest and you play:
   harmonic up (a wind voice overblows); let go and it comes back. **START + L2** drops the mallet on it
   instead of plucking. R2 held for a quick sound change (R2 + a d-pad direction, X, Y, A or B) puts the
   string back as it was before R2 was pressed.
-- None of this needs the drone started: with it stopped, a plucked or bowed string still drones, and
-  stopping the drone (START) leaves a droning string droning until you let it go (**A** lets all go).
+- None of this needs the drone started: with it stopped, a plucked or bowed string still drones. Stopping
+  the drone (a START tap) lets every latched string go, each fading over its RELEASE (**A** lets all go
+  without stopping it). Keys latched from MIDI are the controller's to let go.
 - Each column shows a board with a shed-roof top that fills while its string drones and drains as it fades,
   with the word PLUCKED, BOWED or FADING.
 

@@ -1271,7 +1271,15 @@ void ui_button(int b, int down)
             start_used = 0;
         else if (!start_used) { /* a plain tap: start or stop the drone */
             ui_lock();
+            int stopping = live.playing;
             engine_set_playing(!live.playing);
+            if (stopping) /* stopping lets the latched strings go too, each over its RELEASE */
+                for (int s = 0; s < NS; s++)
+                    if (live.latch[s] != LATCH_OFF) {
+                        if (harm_s == s)
+                            engine_overblow(s, 0), harm_s = -1;
+                        engine_latch(s, LATCH_OFF);
+                    }
             ui_unlock();
             say("%s", live.playing ? "DRONE ON" : "DRONE OFF");
         }
