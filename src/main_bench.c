@@ -29,6 +29,8 @@ static double now_s(void)
 
 static int16_t pcm[2 * 1024];
 
+static int keys_held; /* the mixtures again with every MIDI key voice held, bowed */
+
 static double run(const int *v, int worst, double secs)
 {
     double best = 1e9;
@@ -50,6 +52,11 @@ static double run(const int *v, int worst, double secs)
         }
         engine_init(RATE);
         engine_set_playing(1);
+        for (int k = 0; keys_held && k < NKEY; k++) { /* all eight keys, a chord over the voices, bowed */
+            engine_key_voice(NS + k, k % NS, 48.f + 3.f * k);
+            engine_pluck_amp(NS + k, 1.f);
+            engine_bow(NS + k, 1);
+        }
         for (int i = 0; i < RATE / 1024; i++) /* a second to settle */
             engine_render(pcm, 1024);
         double t0 = now_s();
@@ -100,6 +107,24 @@ int main(int argc, char **argv)
         load[nv + m] = run(mixes[m].v, 1, secs);
         fprintf(stderr, ".");
     }
+    /* the heaviest mixtures again, with all NKEY MIDI keys held */
+    static const Mix keyed[] = {
+        {"4 cymbals, free reed + 8 MIDI keys", {S(CYMBAL), S(CYMBAL), S(CYMBAL), S(CYMBAL), W(FREE)}},
+        {"5 x FREE + 8 MIDI keys", {W(FREE), W(FREE), W(FREE), W(FREE), W(FREE)}},
+        {"5 x CYMBAL + 8 MIDI keys", {S(CYMBAL), S(CYMBAL), S(CYMBAL), S(CYMBAL), S(CYMBAL)}},
+        {"default drone + 8 MIDI keys", {0, 0, 0, 0, 0}},
+    };
+    int nk = (int)(sizeof keyed / sizeof keyed[0]);
+    names = realloc(names, sizeof(char *) * (total + nk));
+    load = realloc(load, sizeof(double) * (total + nk));
+    keys_held = 1;
+    for (int m = 0; m < nk; m++) {
+        names[total + m] = keyed[m].name;
+        load[total + m] = run(keyed[m].v, m < nk - 1, secs);
+        fprintf(stderr, ".");
+    }
+    keys_held = 0;
+    total += nk;
     fprintf(stderr, "\n");
     for (int i = 0; i < total; i++) /* heaviest first */
         for (int j = i + 1; j < total; j++)
