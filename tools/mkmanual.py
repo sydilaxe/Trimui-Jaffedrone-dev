@@ -352,29 +352,30 @@ def build(out):
                          "<b>Applications → Archive Manager</b> and open <b>Applications → Jaffedrone</b>. The "
                          "start-up screen shows for a moment; any button moves on.", P),
                Paragraph("The first buttons", H2),
-               table([(num(1), B("START"), "start or stop the drone (it fades in and out)"),
-                      (num(2), B("START") + " + " + B("L1") + " / " + B("R1"),
-                       "previous / next page: PLAY, SOUND, COMPOSE, MIX, SONG"),
+               table([(num(1), B("START"), "start or stop the drone (it fades in and out): its rings, chord "
+                                         "changes and clock. Only START (or a MIDI or Wi-Fi START) starts it; "
+                                         "playing by hand or from MIDI sounds with it stopped"),
+                      (num(2), B("L1") + " / " + B("R1"),
+                       "previous / next page: PLAY, SOUND, COMPOSE, MIX, SONG, MIDI"),
                       ("", B("SELECT"), "the next chord"),
                       (num(3), B("MENU"), "leave the app")], widths=(9 * mm, 30 * mm, None)),
                Spacer(1, 6),
                Paragraph("Listen on headphones for the deepest low end and for binaural beats; the speaker "
                          "plays little below about 200 Hz.", SMALL))]
 
-    # -------------------------------------------------- the five pages
-    s += [Paragraph("The five pages", H2)]
+    # -------------------------------------------------- the six pages
+    s += [Paragraph("The six pages", H2)]
     thumbs = [("play", "PLAY: the strings and their rhythms"), ("wind_sound", "SOUND: each voice's tone"),
               ("compose", "COMPOSE: scale, chords, change"), ("mix", "MIX: levels and effects"),
-              ("song", "SONG: presets, chord memory, key")]
+              ("song", "SONG: presets, chord memory, key"), ("midi", "MIDI: channels, keys, CC map")]
     cells = []
     for name, cap in thumbs:
-        cells.append([ImageFlow(name, 98), Paragraph(cap, CAP)])
-    t = Table([[c[0] for c in cells], [c[1] for c in cells]], colWidths=[104] * 5)
+        cells.append([ImageFlow(name, 82), Paragraph(cap, CAP)])
+    t = Table([[c[0] for c in cells], [c[1] for c in cells]], colWidths=[87] * 6)
     t.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER"), ("LEFTPADDING", (0, 0), (-1, -1), 2),
                            ("RIGHTPADDING", (0, 0), (-1, -1), 2)]))
-    s += [t, Paragraph(B("START") + " + " + B("R1") + " moves right along the tabs at the top, " + B("START") +
-                       " + " + B("L1") + " left. On SOUND, COMPOSE and MIX, " + B("L1") + " and " + B("R1") +
-                       " alone change page too.", SMALL), PageBreak()]
+    s += [t, Paragraph(B("R1") + " moves right along the tabs at the top, " + B("L1") + " left, on every "
+                       "page (round from MIDI to PLAY).", SMALL), PageBreak()]
 
     # -------------------------------------------------- PLAY: rings
     s += [Paragraph("PLAY: the rhythm rings", H1),
@@ -404,21 +405,22 @@ def build(out):
 
     # -------------------------------------------------- PLAY: by hand
     s += [Paragraph("Playing by hand", H1),
-          Paragraph("The shoulder buttons play the string selected on PLAY, over whatever its rings are doing. "
-                    "A wind voice is tongued and blown instead.", P),
-          side(Brick("play_bow", {"L1": 1, "L2": 2, "R1": 3}),
-               table([(num(1), B("L1"), "pluck the selected string, the moment you press (wind: tongue a note; "
-                                        "struck: the mallet)"),
-                      (num(2), B("L2"),
+          Paragraph("The lower shoulder buttons play the string selected on PLAY, over whatever its rings are "
+                    "doing. A wind voice is tongued and blown instead.", P),
+          side(Brick("play_bow", {"L2": 1, "START": 2, "R2": 3}),
+               table([(num(1), B("L2"), "pluck the selected string, the moment you press (wind: tongue a note; "
+                                        "struck: the mallet). Held, " + B("L2") + " still shapes the ring"),
+                      (num(2), B("START") + " + " + B("L2"),
                        "drop a dulcimer mallet on it: a bright hit, then the mallet bounces, each rebound lower "
                        "and sooner, until it rests (wind: a flutter tongue, the breath rolling \"frrr\" and "
-                       "settling; struck: a hard mallet, bouncing). Held, " + B("L2") + " still shapes the ring"),
-                      (num(3), B("R1") + " held",
+                       "settling; struck: a hard mallet, bouncing)"),
+                      (num(3), B("R2") + " held",
                        "bow it: the bow is drawn in slowly, swelling over about two seconds and brightening as "
-                       "it bites, and sings while you hold (wind: blow)"),
-                      ("", B("L1") + " + " + B("R1") + ", either first",
+                       "it bites, and sings while you hold (wind: blow). Press another button with " + B("R2") +
+                       " held and it is a quick sound change (below): the bow lifts"),
+                      ("", B("L2") + " + " + B("R2") + ", either first",
                        "bow with a light touch at a node: the next harmonic up sings (wind: overblow, an octave "
-                       "up, a twelfth for the reed). Bowing with " + B("R1") + ", add " + B("L1") + " for "
+                       "up, a twelfth for the reed). Bowing with " + B("R2") + ", add " + B("L2") + " for "
                        "overblows as you bow")], widths=(9 * mm, 26 * mm, None)),
                Spacer(1, 6),
                Paragraph("The bowed string's column lights while the bow is on it.", SMALL))]
@@ -435,18 +437,20 @@ def build(out):
     s += [Paragraph("LATCH: hold each string yourself", H1),
           Paragraph("In LATCH the rings rest and every string is silent until you play it. A string you pluck "
                     "or bow keeps droning, with no need to hold the button, until you play it again; then it "
-                    "fades over its own RELEASE.", P),
-          side(Brick("latch", {"START": 1, "A": 5, "LEFT": 2, "RIGHT": 2, "L1": 3, "R1": 3, "UP": 4,
+                    "fades over its own RELEASE. The drone needn't be started; stopping it (" + B("START") + ") lets "
+                    "every latched string go.", P),
+          side(Brick("latch", {"START": 1, "A": 5, "LEFT": 2, "RIGHT": 2, "L2": 3, "R2": 3, "UP": 4,
                                "DOWN": 4, "B": 6, "X": 7, "Y": 7}),
                table([(num(1), B("START") + " + " + B("A"), "switch PLAY MODE between RINGS and LATCH (also on "
                                                              "the SONG page)"),
                       (num(2), B("◀") + " " + B("▶"), "choose a string"),
-                      (num(3), B("L1") + " / " + B("R1"),
-                       "pluck / bow it on: it drones (" + B("L2") + ": the mallet drops it on). Again: it lets "
-                       "go and fades"),
+                      (num(3), B("L2") + " / " + B("R2"),
+                       "pluck / bow it on: it drones (" + B("START") + " + " + B("L2") + ": the mallet drops it "
+                       "on). Again: it lets go and fades. " + B("R2") + " held for a quick sound change puts the "
+                       "string back as it was"),
                       (num(4), B("▲") + " " + B("▼"), "that string's RELEASE, 0.05 s to 20 s"),
                       (num(5), B("A"), "let every string go"),
-                      (num(6), B("B") + " held, or " + B("L1") + " + " + B("R1"),
+                      (num(6), B("B") + " held, or " + B("L2") + " + " + B("R2"),
                        "the next harmonic up on the droning string (wind: overblow); with both shoulders, "
                        "either first, it lasts while both are held"),
                       (num(7), B("Y") + " / " + B("X"), "that string's bow ATTACK, shorter / longer, 0.05 s to "
@@ -458,10 +462,11 @@ def build(out):
                          "strike starts at once; a bow swells in over its ATTACK. RELEASE is also on the MIX "
                          "page; LATCH, ATTACK and RELEASE are saved with songs and presets.", SMALL))]
     s += [Spacer(1, 6), Paragraph("Try it", H2),
-          Paragraph("Press " + B("START") + " + " + B("A") + ". Bow string 1 with " + B("R1") + " for a low "
-                    "drone, move to string 3 and pluck it with " + B("L1") + ", then press " + B("L1") + " on "
+          Paragraph("Press " + B("START") + " + " + B("A") + ". Bow string 1 with " + B("R2") + " for a low "
+                    "drone, move to string 3 and pluck it with " + B("L2") + ", then press " + B("L2") + " on "
                     "string 3 again to let it ring away. Raise string 5's RELEASE with " + B("▲") + " to ten "
-                    "seconds or more for a long dying shimmer. Tap " + B("L2") + " on string 4 to drop the mallet on it, "
+                    "seconds or more for a long dying shimmer. Press " + B("START") + " + " + B("L2") + " on string "
+                    "4 to drop the mallet on it, "
                     "and hold " + B("B") + " to let its harmonic sing. Lower string 1's ATTACK with " + B("Y") +
                     " for a bow that bites at once.", P), PageBreak()]
 
@@ -516,10 +521,11 @@ def build(out):
                     "a short bright contact and a soft one a long dark push) or bowed (stick-slip friction, "
                     "so the modes it meets grow until they sing, as on a rubbed bowl or a bowed cymbal). "
                     "Every voice can be struck and bowed.", P),
-          side(Brick("wind_play", {"L1": 1, "R1": 2, "B": 3}),
-               table([(num(1), B("L1"), "strike (" + B("L2") + ": a hard mallet, dropped, bouncing)"),
-                      (num(2), B("R1"), "bow: the body catches and sings"),
-                      (num(3), B("L1") + " + " + B("R1") + ", " + B("B"),
+          side(Brick("wind_play", {"L2": 1, "R2": 2, "B": 3}),
+               table([(num(1), B("L2"), "strike (" + B("START") + " + " + B("L2") + ": a hard mallet, dropped, "
+                                        "bouncing)"),
+                      (num(2), B("R2"), "bow: the body catches and sings"),
+                      (num(3), B("L2") + " + " + B("R2") + ", " + B("B"),
                        "a touch: the fundamental is damped and the next mode rings and sings")],
                      widths=(9 * mm, 24 * mm, None)),
                Spacer(1, 4),
@@ -578,10 +584,10 @@ def build(out):
 
     # -------------------------------------------------- quiet view
     s += [Paragraph("The quiet view", H1),
-          side(Brick("quiet", {"START": 1, "L2": 1}),
-               Paragraph(B("START") + " + " + B("L2") + " on PLAY for the quiet view: the five strings across "
+          side(Brick("quiet", {"START": 1, "R2": 1}),
+               Paragraph(B("START") + " + " + B("R2") + " on PLAY for the quiet view: the five strings across "
                          "the screen with their rings, and only the chord in words. Again to come back.", P),
-               table([(num(1), B("START") + " + " + B("L2"), "the quiet view on / off")],
+               table([(num(1), B("START") + " + " + B("R2"), "the quiet view on / off")],
                      widths=(9 * mm, 24 * mm, None))),
           Spacer(1, 10)]
 
@@ -612,21 +618,56 @@ def build(out):
                     "chords.", P), PageBreak()]
 
     # -------------------------------------------------- USB and the sticks
+    # -------------------------------------------------- the MIDI page
+    s += [Paragraph("The MIDI page", H1),
+          Paragraph("A MIDI keyboard or controller plays the voices and moves the settings. The MIDI page "
+                    "sets how; it belongs to the Brick, not the song (kept in <b>midi.cfg</b>, kept when a preset "
+                    "loads).", P),
+          side(Brick("midi", {"DPAD": 1, "Y": 2, "X": 2, "A": 3, "R2": 4, "START": 5, "B": 5}),
+               table([(num(1), B("◀") + " " + B("▶") + " " + B("▲") + " " + B("▼"), "choose a setting or a CC"),
+                      (num(2), B("Y") + " / " + B("X"), "change it (on the map: the CC, by hand)"),
+                      (num(3), B("A"), "on the map: learn the entry's CC again (move a knob)"),
+                      (num(4), B("R2") + " + " + B("Y"), "on the map: forget the entry"),
+                      (num(5), B("START") + " + " + B("B"), "MIDI learn, on any page's selected control; again "
+                                                             "to cancel")], widths=(9 * mm, 26 * mm, None))),
+          table([("VOICE 1-5", "each voice's own channel (OFF, or 1-16): its keys, and its CCs, come on it"),
+                 ("KEYS", "the channel of the keys that play the voice selected on PLAY: ANY (every channel "
+                          "that is no voice's) or one"),
+                 ("VEL", "how much velocity matters: 100 as struck, 0 every key alike"),
+                 ("TOUCH", "what aftertouch moves, a key's own on its note only: BOW (harder), TONE "
+                           "(brighter), SWELL (level, from 35% up), VIBRATO, PITCH (up to two semitones), "
+                           "HARM (the next harmonic past halfway), FOLD, BUZZ, or OFF"),
+                 ("MOD", "what the mod wheel moves, the same choice"),
+                 ("BEND", "the pitch bend range, 1 to 24 semitones"),
+                 ("PLAY", "what a key does: BOTH plucks and bows while held, PLUCK only plucks (it rings on), "
+                          "BOW only bows (it swells in), STRIKE drops the mallet"),
+                 ("HOLD", "how long: SONG as PLAY MODE (RINGS while held, LATCH until let go), GATE while held, "
+                          "LATCH a key drones on and the same key again lets it go"),
+                 ("SHIFT", "every key moved, -24 to +24 semitones"),
+                 ("SNAP", "SCALE: each key moves to the nearest note of the song's scale and root"),
+                 ("POLY", "how many keys a voice plays at once, 1 to 4 (at 1, each key takes the last's place)"),
+                 ("CC MAP", "each CC and what it sets. Select any control on SOUND, COMPOSE, MIX or SONG, "
+                            "press " + B("START") + " + " + B("B") + " and move a knob: that CC now sets it. A "
+                            "voice's control moves the voice of the channel the CC comes on (the selected one "
+                            "on the others). CCs 1, 64, 74, 91, 120 and 123 are fixed")],
+                widths=(24 * mm, None)),
+          Paragraph("Each key sounds its voice (its instrument and SOUND settings, level and pan) at its own "
+                    "pitch on one of eight key voices beside the strings, so the drone and the song are "
+                    "untouched and a muted string still plays from the keys. A voice plays four keys at once; a "
+                    "fifth takes the place of its key held longest.", SMALL),
+          PageBreak()]
     s += [Paragraph("USB: MIDI and audio", H1),
           Paragraph("The Brick's USB-C port takes class-compliant MIDI and audio devices (through an OTG adapter "
                     "or a hub): keyboards, controllers, sequencers, drum machines and USB sound cards. They are "
                     "found as they are plugged in; a message names each one.", P),
           Paragraph("MIDI in", H2),
-          table([("Notes", "each key takes a voice and tunes it to the key played, on top of the song (the song "
-                           "is never changed). The first key plays the voice selected on PLAY; each key added "
-                           "while others are held takes the next free voice, so chords build across the voices "
-                           "and overlapping keys rotate through them; with all five held, the key held longest "
-                           "gives up its voice. Muted voices are passed over. A key plucks as hard as it is struck "
-                           "and bows while held. A wind voice is tongued and blown. In LATCH a key starts the "
-                           "string droning (a soft key swells in with the bow, a firm one plucks) and letting go "
-                           "fades it over its RELEASE"),
-                 ("Pitch bend", "two semitones"),
-                 ("Mod wheel, pressure", "how hard the held strings are bowed"),
+          table([("Notes", "a key plays the voice of its channel (the MIDI page), at its own pitch, four at once "
+                           "a voice; it plucks as hard as it is struck and bows while held (a wind voice is "
+                           "tongued and blown). In LATCH a key drones (a soft key swells in with the bow, a firm "
+                           "one plucks) until let go, then fades over the voice's RELEASE. Keys sound with the "
+                           "drone stopped and never start it"),
+                 ("Pitch bend", "BEND semitones (2 at first)"),
+                 ("Aftertouch, mod wheel", "what TOUCH and MOD move (BOW at first)"),
                  ("CC64", "sustain"), ("CC74", "TONE: darker / brighter"), ("CC91", "more / less reverb"),
                  ("Clock", "the tempo follows it (fitted over the last four beats of ticks, so USB's jitter "
                            "averages out), its phase held on the sound as it is heard; START, CONTINUE, STOP and "
@@ -659,8 +700,8 @@ def build(out):
           Paragraph("A USB sound card or DAC, once plugged in, takes the sound from the speaker and "
                     "headphones; unplugged, the sound comes back to them.", P),
           Paragraph("Settings", H2),
-          Paragraph("In <b>launch.sh</b> in the app folder: <b>JD_MIDI_NOTES=CHANNELS</b> lets MIDI channels 1-5 "
-                    "play strings 1-5; <b>JD_MIDI_CLOCK=0</b> never sends clock; <b>JD_MIDI_FOLLOW=0</b> never "
+          Paragraph("In <b>launch.sh</b> in the app folder: <b>JD_MIDI_NOTES=CHANNELS</b> gives voices 1-5 "
+                    "channels 1-5 until the MIDI page sets them; <b>JD_MIDI_CLOCK=0</b> never sends clock; <b>JD_MIDI_FOLLOW=0</b> never "
                     "follows it, whatever MIDI is set to; <b>JD_AUDIO=internal</b> keeps the sound on the speaker and "
                     "headphones.", SMALL),
           PageBreak()]
@@ -671,7 +712,7 @@ def build(out):
                          "on a diagonal: it learns how far it really goes the first time it is pushed all the "
                          "way.", P),
                table([(num(1), "left stick ▲", "bow the string by hand: a light touch draws the bow lightly, "
-                                               "all the way up as hard as the bow goes, half again as hard as R1 "
+                                               "all the way up as hard as the bow goes, half again as hard as R2 "
                                                "(a wind voice: blow)"),
                       ("", "left stick ◀ ▶", "bend the string, up to two semitones either way"),
                       (num(2), "right stick ▲ ▼", "HARM: up touches higher harmonics, to the 5th; down, lower, to "
@@ -704,16 +745,17 @@ def build(out):
           side(Brick("play", {"START": "S", "SELECT": "s", "MENU": "M", "L1": "1", "R1": "2", "L2": "3",
                               "R2": "4"}, width=56 * mm),
                table([(B("START"), "start / stop the drone"),
-                      (B("START") + " + " + B("L1") + "/" + B("R1"), "previous / next page"),
+                      (B("L1") + " / " + B("R1"), "previous / next page"),
                       (B("START") + " + " + B("A"), "PLAY MODE: RINGS / LATCH"),
                       ("LATCH " + B("B") + " / " + B("Y") + B("X"), "harmonic (held) / bow attack"),
                       (B("START") + " + " + B("SELECT"), "the log: OFF / BASIC / DETAIL"),
+                      (B("START") + " + " + B("B"), "MIDI learn the selected control"),
                       (B("SELECT"), "next chord"),
-                      (B("L1"), "pluck (wind: tongue); LATCH: on / let go"),
-                      (B("L2"), "drop the dulcimer mallet (wind: flutter tongue)"),
-                      (B("R1"), "bow while held (wind: blow); LATCH: bow on / let go"),
-                      (B("L1") + " + " + B("R1"), "harmonic (wind: overblow), either first"),
-                      (B("START") + " + " + B("L2"), "quiet view"),
+                      (B("L2"), "pluck (wind: tongue); LATCH: on / let go"),
+                      (B("START") + " + " + B("L2"), "drop the dulcimer mallet (wind: flutter tongue)"),
+                      (B("R2"), "bow while held (wind: blow); LATCH: bow on / let go"),
+                      (B("L2") + " + " + B("R2"), "harmonic (wind: overblow), either first"),
+                      (B("START") + " + " + B("R2"), "quiet view"),
                       (B("L2") + " + ...", "shape the ring, mute (" + B("A") + ")"),
                       (B("R2") + " + ...", "scale, tone, chance, body"),
                       (B("MENU"), "leave")], widths=(36 * mm, None)), dw=60 * mm),

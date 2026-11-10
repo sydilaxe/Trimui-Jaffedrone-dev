@@ -126,10 +126,10 @@ struck); Y / X alone step one at a time.
 
 - **The mallet** is a mass on a spring that meets the surface where it strikes, pushes while compressed and
   leaves on its own: a hard mallet makes a short, bright contact, a soft one a long, dark push, and it can
-  bounce back for a second touch. L2 drops a hard mallet that bounces, each rebound lower and sooner.
+  bounce back for a second touch. START + L2 drops a hard mallet that bounces, each rebound lower and sooner.
 - **The bow** is stick-slip friction at a point: the surface catches on the bow and slips, and the modes it
   meets grow until they sing, as a rubbed singing bowl or a bowed cymbal does.
-- **The touch** (L1 + R1, or B in LATCH): a finger damps the fundamental; the next mode rings and the bow
+- **The touch** (L2 + R2, or B in LATCH): a finger damps the fundamental; the next mode rings and the bow
   sings it.
 
 | Voice | | Modes, over the fundamental |
@@ -219,17 +219,21 @@ strings shimmer against each other.
 PLAY MODE (START + A, or on the SONG page) switches between **RINGS**, where the Euclidean rings play the
 strings, and **LATCH**, where the rings rest and you play:
 
-- Every string starts silent. On PLAY, pick a string with left and right, then **L1** plucks it or **R1**
+- Every string starts silent. On PLAY, pick a string with left and right, then **L2** plucks it or **R2**
   bows it (a wind voice: tongue or blow). Either way it keeps droning, sustained by the bow or breath, with
   no need to hold the button.
-- Press **L1 or R1 again** on that string and it lets go, fading over its own **RELEASE**: 0.05 s for a
+- Press **L2 or R2 again** on that string and it lets go, fading over its own **RELEASE**: 0.05 s for a
   clipped stop up to 20 s for a long dying ring. Up and down set the selected string's RELEASE (it is also
   on the MIX page, in place of GATE).
 - A pluck starts at once; a bow swells in over the string's **ATTACK** (0.05 to 10 s, 1.8 s at first): **Y /
   X** make the selected string's ATTACK shorter / longer. **A** lets every string go.
-- Hold **B**, or **L1 and R1** together (either first), and the selected droning string sounds its next
-  harmonic up (a wind voice overblows); let go and it comes back. **L2** drops the mallet on it instead
-  of plucking.
+- Hold **B**, or **L2 and R2** together (either first), and the selected droning string sounds its next
+  harmonic up (a wind voice overblows); let go and it comes back. **START + L2** drops the mallet on it
+  instead of plucking. R2 held for a quick sound change (R2 + a d-pad direction, X, Y, A or B) puts the
+  string back as it was before R2 was pressed.
+- None of this needs the drone started: with it stopped, a plucked or bowed string still drones. Stopping
+  the drone (a START tap) lets every latched string go, each fading over its RELEASE (**A** lets all go
+  without stopping it). Keys latched from MIDI are the controller's to let go.
 - Each column shows a board with a shed-roof top that fills while its string drones and drains as it fades,
   with the word PLUCKED, BOWED or FADING.
 
@@ -320,7 +324,7 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
 - **PLAY:** the five strings, each with its pluck ring and bow ring drawn as polygons. The steps are the
   corners, and the pulses are joined into an inner shape that lights on each pluck and fills as the bow swells.
   The band at the top shows the scale, the current chord and the bars until the next change.
-- **The quiet view** (START + L2 on PLAY): only the five strings and their rings, for meditation.
+- **The quiet view** (START + R2 on PLAY): only the five strings and their rings, for meditation.
 - **SOUND:** tone and sound shaping. The engine, exciter and material at the top, then each string's note,
   harmonic touch, bow, decay, brightness, fold,
   stiffness, pick position and buzz, then coupling, body, tone and the sympathetic strings.
@@ -333,6 +337,10 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
 - **MIX:** each string's level, pan and gate with a meter, master, the sympathetic strings' level, the
   undertones (SUB, SUB DIV, SUB RES), then delay,
   reverb and binaural. Under AURA: the MIDI clock's **MIDI** and **START** settings (see
+  [USB: MIDI and audio](#usb-midi-and-audio)).
+- **MIDI:** which channel each voice listens on, how the keys play (their channel, velocity, what
+  aftertouch and the mod wheel move, the bend range, pluck or bow, hold or latch, shift, snap to the scale,
+  how many at once) and the CC map, with MIDI learn (see
   [USB: MIDI and audio](#usb-midi-and-audio)).
 
 ## Song: presets, chord memory, key
@@ -426,16 +434,16 @@ on the shoulder buttons.
 | B | fewer pulses, wrapping back to all |
 | X | rotate the pattern |
 | Y | a new simple pattern |
-| L1 | pluck the selected string by hand, the moment it is pressed (WIND: tongue a note) |
-| L2 | drop a dulcimer mallet on it: a bright hit, then rebounds, each lower and sooner, until it rests (WIND: a flutter tongue; STRUCK: a hard mallet, bouncing). Held, L2 still shapes the ring |
-| R1 (hold) | bow the selected string by hand: the bow is drawn slowly, swelling over about two seconds and brightening as it bites, then sings steadily while R1 is held (WIND: blow) |
-| L1 + R1, either first | bow with a harmonic touch: the next harmonic up sings (WIND: overblow, an octave up, a twelfth for REED); bowing with R1, add L1 for overblows as you bow |
+| L2 | pluck the selected string by hand, the moment it is pressed (WIND: tongue a note). Held, L2 still shapes the ring |
+| START + L2 | drop a dulcimer mallet on it: a bright hit, then rebounds, each lower and sooner, until it rests (WIND: a flutter tongue; STRUCK: a hard mallet, bouncing) |
+| R2 (hold) | bow the selected string by hand: the bow is drawn slowly, swelling over about two seconds and brightening as it bites, then sings steadily while R2 is held (WIND: blow). Held, R2 still makes the quick sound changes, bowing as it does |
+| L2 + R2, either first | bow with a harmonic touch: the next harmonic up sings (WIND: overblow, an octave up, a twelfth for REED); bowing with R2, add L2 for overblows as you bow |
 | L2 + up / down | more / fewer steps |
 | L2 + left / right | step length (right = faster) |
 | L2 + X | more pulses |
 | L2 + Y | rotate back |
 | L2 + A | mute / unmute the string (it fades out and in; a red bar marks it) |
-| START + L2 | the quiet view |
+| START + R2 | the quiet view |
 | R2 + left / right | previous / next scale |
 | R2 + up / down | tone (cutoff) |
 | R2 + X / Y | the selected ring's chance more / less (10% steps) |
@@ -446,10 +454,14 @@ on the shoulder buttons.
 | Button | Action |
 |---|---|
 | SELECT | next chord |
-| START (tap) | start / stop the drone |
-| START + L1 / R1 | previous / next page (on SOUND, COMPOSE and MIX, L1 / R1 alone also work) |
+| START (tap) | start / stop the drone (its rings, chord changes and clock): the only way it starts, besides a MIDI or Wi-Fi sync START. Playing by hand or from MIDI sounds with the drone stopped, and never starts it |
+| L1 / R1 | previous / next page |
+| START + B | MIDI learn: on SOUND, COMPOSE, MIX or SONG, the selected control; then move a knob or slider. Again: cancel |
 | START + A | PLAY MODE: RINGS or LATCH (see Latch) |
 | MENU | exit |
+
+**Combos:** holding R2 (or L2) and pressing another button is an edit, as listed above. On PLAY, R2 held alone
+bows; once R2 is used for an edit the bow lifts (in LATCH, the string goes back as it was).
 
 **On SOUND, COMPOSE and MIX:** the d-pad moves to the nearest control in that direction, and Y / X lowers or
 raises it. On a string's control, A mutes or unmutes that string and B plucks it. Elsewhere, B plucks the
@@ -469,22 +481,41 @@ are found as they are plugged in, and a message names each one.
 
 **MIDI in** (any channel; `src/midi.h` has the details):
 
-- **Notes:** each key takes a voice and tunes it to the key played. The tuning is a bend on top of the song,
-  so the song is never changed.
-  - **Which voice:** the first key plays the voice selected on PLAY. Each key added while others are held
-    takes the next free voice round from the last one taken, so a chord builds across the voices and a run
-    of overlapping keys rotates through them. With all five held, the key held longest gives up its voice.
-    Muted voices and voices that only listen (AURA) are passed over, so muting voices narrows what the
-    keyboard plays.
+- **Notes:** a key plays the voice its channel plays, at the key's own pitch.
+  - **Which voice:** on the MIDI page each voice can have a channel of its own (VOICE 1-5: OFF or 1-16).
+    A key on any other channel (or on KEYS's channel, when set) plays the voice selected on PLAY. Each
+    key sounds that voice (its instrument and its SOUND settings, level and pan) on one of eight key voices
+    of their own beside the five strings, so the drone and the song are never changed, and a muted string
+    still plays from the keys. A voice plays up to four keys at once; a fifth takes the place of its key
+    held longest.
   - **How it plays:** the key plucks as hard as it is struck and bows while held (a wind voice is tongued
-    and blown). In LATCH a key starts its voice droning (a soft key swells in with the bow, a firm one
-    plucks), and letting go fades it over its RELEASE.
-  - With `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play voices 1-5 instead.
-- **Pitch bend:** two semitones. **Mod wheel** and **pressure:** how hard the held strings are bowed.
-  **CC64:** sustain. **CC74:** TONE. **CC91:** reverb. **CC120 / CC123:** everything let go.
-- **Settings by CC:** the important voice, engine and play settings each have a CC, on any channel: CC 2
-  chooses the string, 14-29 its voice, 85-90 the engine, 102-112 the string's rings, 113-119 the play.
+    and blown). **VEL** sets how much velocity matters (100 as struck, 0 every key alike). In LATCH a key
+    drones (a soft key swells in with the bow, a firm one plucks) until it is let go, then fades over the
+    voice's RELEASE.
+  - **How the keys play** (the MIDI page's third row): **PLAY** BOTH (pluck and bow, as above), PLUCK
+    (a pluck that rings on), BOW (a bow only, swelling in) or STRIKE (the mallet); **HOLD** SONG (as PLAY
+    MODE), GATE (always while held) or LATCH (a key starts its note droning, the same key again lets it
+    go); **SHIFT** moves every key -24 to +24 semitones; **SNAP** SCALE moves each key to the nearest note
+    of the song's scale and root; **POLY** is how many keys a voice plays at once (1-4; at 1 each key
+    takes the last one's place). Together with the voices' channels, Jaffedrone becomes a sound engine for
+    an outside controller or sequencer.
+  - Keys sound with the drone stopped and never start it.
+  - `JD_MIDI_NOTES=CHANNELS` in launch.sh gives voices 1-5 channels 1-5, until the MIDI page sets them.
+- **Aftertouch** (of a key, or of the channel) and the **mod wheel** (CC1): each moves what the MIDI page's
+  **TOUCH** and **MOD** pick: BOW (harder), TONE (brighter), SWELL (level, from 35% up), VIBRATO, PITCH (up
+  to two semitones), HARM (the next harmonic past halfway), FOLD, BUZZ, or OFF. A key's own aftertouch
+  moves only its note. Both start on BOW.
+- **Pitch bend:** **BEND** semitones (1-24, 2 at first). **CC64:** sustain. **CC74:** TONE. **CC91:**
+  reverb. **CC120 / CC123:** everything let go.
+- **Settings by CC:** the important voice, engine and play settings each have a CC (the defaults: CC 2
+  chooses the string, 14-29 its voice, 85-90 the engine, 102-112 the string's rings, 113-119 the play).
+  A voice's setting moves the voice of the channel the CC comes on (the selected one on other channels).
   [docs/MIDI.md](docs/MIDI.md) is the full MIDI implementation chart.
+- **MIDI learn:** on SOUND, COMPOSE, MIX or SONG, select a control, press **START + B** and move a knob:
+  that CC now sets it (a CC sets one thing; one already mapped leaves its old setting). On the MIDI page the
+  map lists every CC: **A** learns an entry's CC again, **Y / X** change it by hand, **R2 + Y** forgets it.
+  CCs 1, 64, 74, 91, 120 and 123 are fixed. The MIDI page's settings and map belong to the Brick, not the
+  song: they are kept in `midi.cfg` in the app folder.
 - **Clock** (MIDI set to AUTO or FOLLOW): the tempo follows it (a straight line through the last four beats
   of ticks, so USB's jitter averages out), and its phase is held on the sound as it is heard by trimming the
   playback speed, as Wi-Fi sync does. START, CONTINUE, STOP and song position start, stop and place the
@@ -525,7 +556,7 @@ PLAY and spring back when let go; nothing they do is saved.
 
 | Stick | Does |
 |---|---|
-| left, up | bow the string by hand, from a light touch to the engine's hardest, half again as hard as R1 (a wind voice: blow) |
+| left, up | bow the string by hand, from a light touch to the engine's hardest, half again as hard as R2 (a wind voice: blow) |
 | left, left / right | bend the string, two semitones either way (`JD_BEND=7` for seven) |
 | right, up / down | HARM: up touches higher harmonics, to the 5th; down, lower, to none (a wind voice: its register; struck: the mode the bow sings) |
 | right, left / right | the SOUND control mapped to the stick (BRIGHT at first): right up to its most, left down to its least |

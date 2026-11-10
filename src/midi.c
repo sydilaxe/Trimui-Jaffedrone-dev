@@ -33,8 +33,7 @@ static uint64_t now_us(void)
 
 /* ------------------------------------------------------------ settings */
 
-enum { NOTES_POLY, NOTES_CHANNELS };
-static int notes_mode = NOTES_POLY, clock_out = 1, follow = 1;
+static int clock_out = 1, follow = 1;
 static volatile float latency_s = 0.03f;
 
 void midi_set_latency(float seconds) { latency_s = seconds < 0.f ? 0.f : seconds; }
@@ -77,15 +76,23 @@ int midi_take_notice(char *buf, int n)
 /* ---------------------------------------------------------- the notes */
 
 typedef struct {
-    int note, ch, vel; /* the key it plays (note -1: none) */
+    int note, ch, vel, src; /* the key it plays, and the voice it sounds like */
     int held, sustained;
+    float poly; /* its own (polyphonic) aftertouch, 0 .. 1 (-1: none yet) */
     uint64_t on_us, off_us;
-} Hold;
-static Hold hold[NS];
-static float pb[16];     /* pitch bend, semitones */
+} Key;
+static Key key[NKEY];   /* each on key voice NS + k */
+static float pb[16];    /* pitch bend, semitones */
 static int sustain[16];
-static float wheel;      /* CC1, 0 .. 1 */
-static float press[16];  /* channel pressure, 0 .. 1 (-1: none yet) */
+static float modw[16];  /* CC1, 0 .. 1 */
+static float press[16]; /* channel pressure, 0 .. 1 (-1: none yet) */
+/* the most keys one voice plays at once: the MIDI page's POLY (1-4) */
+static int per_voice(void) { return midi_cfg.poly < 1 ? 1 : midi_cfg.poly > 4 ? 4 : midi_cfg.poly; }
+/* a key drones until let go (HOLD LATCH, or HOLD SONG in PLAY MODE LATCH) */
+static int key_latches(void)
+{
+    return midi_cfg.hold == KH_LATCH || (midi_cfg.hold == KH_SONG && song.gp[GP_PLAYMODE] == PLAY_LATCH);
+}
 
 /* engine_position read without the engine's lock: two variables, so a read
  * may catch them mid-change; the middle of three is always whole */
@@ -99,136 +106,172 @@ static double position(void)
     return c < a ? a : c > b ? b : c;
 }
 
-static void retune(int s)
+/* the velocity as heard: VELOCITY 100 as struck, 0 every key alike */
+static int vel_heard(int vel)
 {
-    Hold *h = &hold[s];
-    if (h->note < 0)
-        return;
-    float bend = h->note + pb[h->ch] - engine_string_pitch(s);
-    while (bend > 24.f) /* out of reach: the nearest octave of it */
-        bend -= 12.f;
-    while (bend < -24.f)
-        bend += 12.f;
-    engine_express_bend(s, bend);
+    int v = (int)lrintf(100.f + midi_cfg.vel / 100.f * (vel - 100));
+    return v < 1 ? 1 : v > 127 ? 127 : v;
 }
 
-static float pressure(const Hold *h)
+/* a key's expression onto its voice: the bend, and what aftertouch and the
+ * mod wheel move (their amounts add when they move the same thing) */
+static void express(int k)
 {
-    float p = press[h->ch] >= 0.f ? 0.2f + 1.1f * press[h->ch] : 0.3f + 0.9f * h->vel / 127.f;
-    return p * (1.f + 0.5f * wheel);
-}
-
-/* a voice a key may take: sounding (not muted), and not one that only
- * listens (AURA) */
-static int playable(int s)
-{
-    return song.on[s] && !(song.fx[FX_AIR] > 0 && song.sp[s][SP_LISTEN] == AIR_LISTENS);
-}
-
-static int last_s = -1; /* the voice the last new key took */
-
-/* POLY: the first key plays the voice selected on PLAY; each key added
- * while others are held takes the next free voice round from the last one
- * taken, so a chord builds across the voices and a run of overlapping keys
- * rotates through them; with every voice held, the key held longest gives
- * its voice up */
-static int pick_string(int ch, int note)
-{
-    for (int s = 0; s < NS; s++) /* the key again: the same string */
-        if (hold[s].note == note && hold[s].ch == ch && hold[s].held)
-            return s;
-    if (notes_mode == NOTES_CHANNELS)
-        return ch < NS ? ch : ui_selected_string();
-    int sel = ui_selected_string(), any_held = 0, any_playable = 0;
-    for (int s = 0; s < NS; s++)
-        any_held |= hold[s].held, any_playable |= playable(s);
-    if (!any_held && (playable(sel) || !any_playable))
-        return sel;
-    int from = any_held && last_s >= 0 ? last_s : sel;
-    for (int k = 1; k <= NS; k++) {
-        int s = (from + k) % NS;
-        if (!hold[s].held && playable(s))
-            return s;
+    Key *h = &key[k];
+    int v = NS + k;
+    float at = h->poly >= 0.f ? h->poly : press[h->ch] >= 0.f ? press[h->ch] : 0.f;
+    float amt[NMT] = {0};
+    amt[midi_cfg.at_to < NMT ? midi_cfg.at_to : 0] += at;
+    amt[midi_cfg.mod_to < NMT ? midi_cfg.mod_to : 0] += modw[h->ch];
+    for (int t = 0; t < NMT; t++)
+        amt[t] = amt[t] > 1.f ? 1.f : amt[t];
+    engine_express_bend(v, pb[h->ch] + 2.f * amt[MT_PITCH]);
+    engine_key_vibrato(v, 0.6f * amt[MT_VIBRATO]);
+    float base = 0.3f + 0.9f * vel_heard(h->vel) / 127.f; /* a harder key bows harder */
+    engine_bow_pressure(v, base + (1.5f - base) * amt[MT_BOW]);
+    static const int tp[4][2] = {{MT_TONE, SP_BRIGHT}, {MT_FOLD, SP_FOLD}, {MT_BUZZ, SP_BUZZ}, {MT_SWELL, SP_LEVEL}};
+    for (int i = 0; i < 4; i++) {
+        int t = tp[i][0], p = tp[i][1], b = engine_param_played(h->src, p);
+        int on = t == MT_SWELL ? midi_cfg.at_to == t || midi_cfg.mod_to == t : amt[t] > 0.f;
+        float val = t == MT_SWELL ? b * (0.35f + 0.65f * amt[t]) : b + (sparam_def(p)->max - b) * amt[t];
+        engine_express_param(v, p, on, (int)lrintf(val));
     }
-    int best = -1;
+    engine_overblow(v, amt[MT_HARM] > 0.5f);
+}
+
+/* a key voice for a key: the same key again keeps its voice; a voice already
+ * playing PER_VOICE keys gives its oldest up; else a silent key voice, the
+ * one let go longest ago, or with all held, the key held longest */
+static int pick_key(int ch, int note, int src)
+{
+    for (int k = 0; k < NKEY; k++)
+        if (key[k].held && key[k].note == note && key[k].ch == ch)
+            return k;
+    int n = 0, best = -1;
     uint64_t oldest = UINT64_MAX;
-    for (int s = 0; s < NS; s++) /* all held: the one held longest */
-        if (hold[s].held && (playable(s) || !any_playable) && hold[s].on_us < oldest)
-            oldest = hold[s].on_us, best = s;
-    return best >= 0 ? best : sel;
+    for (int k = 0; k < NKEY; k++)
+        if (key[k].held && key[k].src == src) {
+            n++;
+            if (key[k].on_us < oldest)
+                oldest = key[k].on_us, best = k;
+        }
+    if (n >= per_voice())
+        return best;
+    for (int k = 0; k < NKEY; k++)
+        if (!key[k].held && !engine_key_sounding(NS + k))
+            return k;
+    best = -1, oldest = UINT64_MAX;
+    for (int k = 0; k < NKEY; k++) /* still ringing: the one let go longest ago */
+        if (!key[k].held && key[k].off_us < oldest)
+            oldest = key[k].off_us, best = k;
+    if (best >= 0)
+        return best;
+    for (int k = 0; k < NKEY; k++) /* all held: the one held longest */
+        if (key[k].on_us < oldest)
+            oldest = key[k].on_us, best = k;
+    return best;
 }
 
 int midi_voice_of(int ch, int note)
 {
-    for (int s = 0; s < NS; s++)
-        if (hold[s].held && hold[s].note == note && hold[s].ch == ch)
-            return s;
+    for (int k = 0; k < NKEY; k++)
+        if (key[k].held && key[k].note == note && key[k].ch == ch)
+            return NS + k;
     return -1;
 }
 
-static void let_go(int s, uint64_t t)
+static void let_go(int k, uint64_t t)
 {
-    Hold *h = &hold[s];
+    Key *h = &key[k];
+    int v = NS + k;
     if (!h->held)
         return;
     h->held = h->sustained = 0;
     h->off_us = t;
-    if (song.gp[GP_PLAYMODE] == PLAY_LATCH) {
-        if (live.latch[s] != LATCH_OFF)
-            engine_latch(s, LATCH_OFF); /* played again: it fades over its RELEASE */
-    }
-    else {
-        engine_bow(s, 0);
-        engine_bow_pressure(s, 1.f);
-    }
+    if (engine_latch_state(v) != LATCH_OFF)
+        engine_latch(v, LATCH_OFF); /* it fades over its RELEASE */
+    else
+        engine_bow(v, 0);
 }
 
+/* a key plays the voice its channel plays, at its own pitch; it never starts
+ * the drone (only START, or a clock's START, does) */
 static void note_on(int ch, int note, int vel, uint64_t t)
 {
-    int s = pick_string(ch, note);
-    if (s < 0)
+    int src = midi_channel_voice(ch);
+    if (src < 0)
         return;
-    Hold *h = &hold[s];
-    int again = h->held;
-    if (h->held && (h->note != note || h->ch != ch))
-        let_go(s, t); /* taken from another key */
-    h->note = note, h->ch = ch, h->vel = vel;
-    h->held = 1, h->sustained = 0;
+    if (midi_cfg.hold == KH_LATCH) /* HOLD LATCH: the droning key again lets it go */
+        for (int k = 0; k < NKEY; k++)
+            if (key[k].held && key[k].note == note && key[k].ch == ch) {
+                let_go(k, t);
+                return;
+            }
+    int k = pick_key(ch, note, src);
+    if (k < 0)
+        return;
+    Key *h = &key[k];
+    int v = NS + k, again = h->held && h->note == note && h->ch == ch;
+    if (h->held && !again)
+        let_go(k, t); /* taken from another key */
+    h->note = note, h->ch = ch, h->vel = vel, h->src = src;
+    h->held = 1, h->sustained = 0, h->poly = -1.f;
     h->on_us = t;
-    last_s = s;
-    retune(s);
-    if (!live.playing)
-        engine_set_playing(1);
-    if (song.gp[GP_PLAYMODE] == PLAY_LATCH) {
-        if (live.latch[s] == LATCH_OFF) /* a soft key swells in with the bow, a firm one plucks */
-            engine_latch(s, vel <= 48 ? LATCH_BOW : LATCH_PLUCK);
+    /* its pitch: SHIFT semitones on, then SNAP to the song's scale */
+    float pitch = (float)(note + midi_cfg.shift);
+    if (midi_cfg.snap)
+        pitch = engine_scale_snap(pitch);
+    engine_key_voice(v, src, pitch);
+    express(k);
+    int vh = vel_heard(vel), pl = midi_cfg.play;
+    float amp = 0.25f + 0.75f * vh / 127.f;
+    if (key_latches()) {
+        if (engine_latch_state(v) == LATCH_OFF) /* BOTH: a soft key swells in with the bow, a firm one plucks */
+            engine_latch(v, pl == KP_BOW      ? LATCH_BOW
+                            : pl == KP_STRIKE ? LATCH_HAMMER
+                            : pl == KP_PLUCK  ? LATCH_PLUCK
+                            : vh <= 48        ? LATCH_BOW
+                                              : LATCH_PLUCK);
         else if (again)
-            engine_pluck_amp(s, vel / 127.f);
+            engine_pluck_amp(v, vh / 127.f);
     }
     else {
-        engine_pluck_amp(s, 0.25f + 0.75f * vel / 127.f);
-        engine_bow_pressure(s, pressure(h));
-        engine_bow(s, 1);
+        if (pl == KP_STRIKE)
+            engine_hammer_amp(v, amp);
+        else if (pl != KP_BOW)
+            engine_pluck_amp(v, amp);
+        if (pl == KP_BOTH || pl == KP_BOW)
+            engine_bow(v, 1);
     }
 }
 
 static void note_off(int ch, int note, uint64_t t)
 {
-    for (int s = 0; s < NS; s++) {
-        Hold *h = &hold[s];
+    if (midi_cfg.hold == KH_LATCH) /* a latched key drones on: the key again lets it go */
+        return;
+    for (int k = 0; k < NKEY; k++) {
+        Key *h = &key[k];
         if (h->held && h->note == note && h->ch == ch) {
             if (sustain[ch])
                 h->sustained = 1;
             else
-                let_go(s, t);
+                let_go(k, t);
         }
     }
 }
 
 static void all_off(uint64_t t)
 {
-    for (int s = 0; s < NS; s++)
-        let_go(s, t);
+    for (int k = 0; k < NKEY; k++)
+        let_go(k, t);
+}
+
+/* the keys of a channel, sounding: their expression again */
+static void express_ch(int ch)
+{
+    for (int k = 0; k < NKEY; k++)
+        if (key[k].ch == ch && key[k].note >= 0 && engine_key_sounding(NS + k))
+            express(k);
 }
 
 /* the other CCs, for the main thread (ui_midi_cc): one writer (the MIDI
@@ -252,18 +295,16 @@ int midi_take_cc(int *ch, int *cc, int *v)
 static void control(int ch, int cc, int v, uint64_t t)
 {
     switch (cc) {
-    case 1:
-        wheel = v / 127.f;
-        for (int s = 0; s < NS; s++)
-            if (hold[s].held && song.gp[GP_PLAYMODE] != PLAY_LATCH)
-                engine_bow_pressure(s, pressure(&hold[s]));
+    case 1: /* the mod wheel: what the MIDI page sends it to */
+        modw[ch] = v / 127.f;
+        express_ch(ch);
         break;
     case 64:
         sustain[ch] = v >= 64;
         if (!sustain[ch])
-            for (int s = 0; s < NS; s++)
-                if (hold[s].sustained && hold[s].ch == ch)
-                    let_go(s, t);
+            for (int k = 0; k < NKEY; k++)
+                if (key[k].sustained && key[k].ch == ch)
+                    let_go(k, t);
         break;
     case 74: engine_express_tone((v - 64) / 64.f * 2.f); break;
     case 91: engine_express_space((v - 64) / 63.f); break;
@@ -496,17 +537,20 @@ static void message(uint64_t t)
         __attribute__((fallthrough));
     case 0x80: note_off(ch, data[0], t); break;
     case 0xb0: control(ch, data[0], data[1], t); break;
-    case 0xd0:
+    case 0xa0: /* aftertouch of one key */
+        for (int k = 0; k < NKEY; k++)
+            if (key[k].held && key[k].note == data[0] && key[k].ch == ch) {
+                key[k].poly = data[1] / 127.f;
+                express(k);
+            }
+        break;
+    case 0xd0: /* aftertouch of the channel: its keys without their own */
         press[ch] = data[0] / 127.f;
-        for (int s = 0; s < NS; s++)
-            if (hold[s].held && hold[s].ch == ch && song.gp[GP_PLAYMODE] != PLAY_LATCH)
-                engine_bow_pressure(s, pressure(&hold[s]));
+        express_ch(ch);
         break;
     case 0xe0:
-        pb[ch] = (((data[1] << 7) | data[0]) - 8192) / 8192.f * 2.f;
-        for (int s = 0; s < NS; s++)
-            if (hold[s].held && hold[s].ch == ch)
-                retune(s);
+        pb[ch] = (((data[1] << 7) | data[0]) - 8192) / 8192.f * (float)midi_cfg.bend;
+        express_ch(ch);
         break;
     case 0xf0:
         if (status == 0xf2 && can_transport()) { /* song position, in 16ths */
@@ -574,15 +618,14 @@ void midi_feed(const uint8_t *b, int n, uint64_t t)
 
 void midi_reset(void)
 {
-    for (int s = 0; s < NS; s++) {
-        memset(&hold[s], 0, sizeof hold[s]);
-        hold[s].note = -1;
-        engine_express_bend(s, 0.f);
+    for (int k = 0; k < NKEY; k++) {
+        memset(&key[k], 0, sizeof key[k]);
+        key[k].note = -1;
+        engine_express_bend(NS + k, 0.f);
+        engine_key_vibrato(NS + k, 0.f);
     }
     for (int c = 0; c < 16; c++)
-        pb[c] = 0.f, sustain[c] = 0, press[c] = -1.f;
-    wheel = 0.f;
-    last_s = -1;
+        pb[c] = 0.f, sustain[c] = 0, press[c] = -1.f, modw[c] = 0.f;
     tick_us = ext_seen_us = 0;
     tick_avg_us = 0.0;
     ticks = 0;
@@ -822,7 +865,7 @@ static void *loop(void *arg)
         CPU_SET(core_, &cs);
         pthread_setaffinity_np(pthread_self(), sizeof cs, &cs);
     }
-    uint64_t next_scan = 0, next_tune = 0;
+    uint64_t next_scan = 0;
     while (running) {
         uint64_t t = now_us();
         if (t >= next_scan) {
@@ -846,26 +889,12 @@ static void *loop(void *arg)
         }
         /* the outside clock has stopped, or MIDI is set not to follow it */
         int stale = following && (t - ext_seen_us > 1000000 || !can_follow());
-        if (!stale && t < next_tune)
-            goto clock;
-        ui_lock();
         if (stale) { /* the outside clock has stopped */
+            ui_lock();
             following = ext_running = 0;
             engine_set_rate(1.0);
+            ui_unlock();
         }
-        if (t >= next_tune) { /* chords move the strings: the held keys stay in tune */
-            for (int s = 0; s < NS; s++) {
-                if (hold[s].held)
-                    retune(s);
-                else if (hold[s].note >= 0 && t - hold[s].off_us > 4000000) {
-                    hold[s].note = -1; /* rung out: back to its own note */
-                    engine_express_bend(s, 0.f);
-                }
-            }
-            next_tune = t + 20000;
-        }
-        ui_unlock();
-    clock:;
         uint8_t out[16];
         int n = midi_clock_step(t, out, sizeof out);
         if (n)
@@ -886,7 +915,12 @@ static void *loop(void *arg)
 void midi_start(int core)
 {
     const char *v = getenv("JD_MIDI_NOTES");
-    notes_mode = v && !strcasecmp(v, "channels") ? NOTES_CHANNELS : NOTES_POLY;
+    int none = 1; /* as before the MIDI page: CHANNELS gives voices 1-5 channels 1-5, unless set there */
+    for (int s = 0; s < NS; s++)
+        none &= !midi_cfg.vch[s];
+    if (v && !strcasecmp(v, "channels") && none)
+        for (int s = 0; s < NS; s++)
+            midi_cfg.vch[s] = s + 1;
     v = getenv("JD_MIDI_CLOCK");
     clock_out = !(v && *v == '0');
     v = getenv("JD_MIDI_FOLLOW");

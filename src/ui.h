@@ -11,7 +11,7 @@ enum {
     BTN_COUNT
 };
 
-enum { PAGE_PLAY, PAGE_SOUND, PAGE_COMPOSE, PAGE_MIX, PAGE_SONG, PAGE_COUNT };
+enum { PAGE_PLAY, PAGE_SOUND, PAGE_COMPOSE, PAGE_MIX, PAGE_SONG, PAGE_MIDI, PAGE_COUNT };
 
 /* Set by the platform to serialise UI edits against the audio callback. */
 extern void (*ui_lock)(void);
@@ -26,11 +26,18 @@ int ui_quit_requested(void);
 int ui_splash_showing(void); /* the start-up screen is up */
 int ui_take_changed(void);
 int ui_selected_string(void);      /* the string hand playing plays (the sticks, too) */
+int ui_page(void); /* the page shown (PAGE_PLAY ..) */
 void ui_notice(const char *msg);
-/* MIDI CC: the important settings, by CC number (any channel); 1 if it was
- * one. Main thread. ui_midi_chart writes the CC table of the MIDI chart. */
+/* MIDI CC: a setting by its CC number, as the MIDI page maps them (learned,
+ * or the defaults); a voice's settings act on the voice of the channel
+ * (midi_channel_voice). 1 if it was one. Main thread. ui_midi_chart writes
+ * the default CC table of the MIDI chart. ui_midi_load reads the MIDI page's
+ * settings and map from the preset folder (midi.cfg); they are written there
+ * a moment after each change. */
 int ui_midi_cc(int ch, int cc, int v);
 void ui_midi_chart(FILE *f);
+void ui_midi_load(void);
+int ui_midi_learning(void); /* waiting for a CC to learn */
 /* the Brick Pro's right stick: left / right plays a SOUND control of the
  * selected string (BRIGHT at first); ui_stick_map, on R3, maps the SOUND row
  * under the cursor and returns 1, or returns 0 off SOUND (R3: next chord) */

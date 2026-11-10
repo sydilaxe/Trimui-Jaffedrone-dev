@@ -15,6 +15,12 @@
 #endif
 
 #define NS 5
+/* the MIDI keyboard's voices: eight more, after the strings (NS .. NV - 1),
+ * each sounding like the string it was given (engine_key_voice) at the key
+ * played. They have no rings, are not in the song, and while silent take
+ * no time and leave the sound as it would be without them. */
+#define NKEY 8
+#define NV (NS + NKEY)
 #define NSP 28 /* params per string */
 #define NGP 34 /* global params */
 #define NPROG 16 /* chords in the progression memory */
@@ -219,7 +225,7 @@ void engine_hammer(int s);
 void engine_bow(int s, int on); /* bow by hand while held, over the rings */
 void engine_overblow(int s, int on); /* while bowing: overblow (wind) or touch a harmonic (strings) */
 /* live expression (the Brick Pro's sticks, MIDI), on top of the song and
- * never saved: how hard the hand bows string s (1 = as R1, 0 .. 1.5), its
+ * never saved: how hard the hand bows string s (1 = as R2, 0 .. 1.5), its
  * pitch bend in semitones, TONE moved in octaves, and the reverb's send
  * from none (-1) through as set (0) to double (1) */
 void engine_bow_pressure(int s, float p);
@@ -235,6 +241,17 @@ int engine_param_played(int s, int p);
  * played again, it fades over its RELEASE. Returns the new state. */
 int engine_latch(int s, int how);
 void engine_unlatch_all(void); /* every string lets go */
+/* a key voice v (NS .. NV - 1) readied to sound like string src at MIDI
+ * note `note`: then engine_pluck_amp, engine_bow, engine_bow_pressure,
+ * engine_express_bend and engine_latch play it as they play a string (a
+ * key voice is never muted, and lights no ring). engine_string_pitch(v) is
+ * its note. engine_key_sounding: it is held or still ringing. */
+void engine_key_voice(int v, int src, float note);
+int engine_key_sounding(int v);
+void engine_key_vibrato(int v, float semitones); /* MIDI vibrato on key voice v, this deep */
+void engine_hammer_amp(int s, float amp); /* engine_hammer this hard (0 .. 1), strings and key voices */
+float engine_scale_snap(float note);      /* the nearest note of the song's scale (root and tuning) */
+int engine_latch_state(int v); /* LATCH: how voice v (a string or a key voice) drones now */
 void engine_next_chord(void);  /* the next chord of the progression */
 void engine_set_scale(int sc); /* retune: each string moves to the nearest degree */
 void engine_euclid_random(int s, int ring); /* a new simple rhythm for one ring */

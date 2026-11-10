@@ -13,6 +13,7 @@
 #include "engine.h"
 #include "gfx.h"
 #include "log.h"
+#include "midi.h"
 #include "sync.h"
 
 #define C_BG 0x14161b
@@ -39,22 +40,25 @@ void (*ui_lock)(void) = nop;
 void (*ui_unlock)(void) = nop;
 
 static const uint32_t scol[NS] = {0xc9a67c, 0xad7f61, 0xd9c3a0, 0x9fb7a4, 0x7f9aa6};
-static const char *const page_names[PAGE_COUNT] = {"PLAY", "SOUND", "COMPOSE", "MIX", "SONG"};
+static const char *const page_names[PAGE_COUNT] = {"PLAY", "SOUND", "COMPOSE", "MIX", "SONG", "MIDI"};
 static int page, cur_s;
 static int ring;  /* PLAY: the selected ring of the selected string */
 static int quiet; /* PLAY: the quiet view, strings and rings only */
 static int l2_used, r2_used;
-static int bowing = -1; /* the string bowed by hand (R1 held) */
+static int bowing = -1; /* the string bowed by hand (R2 held) */
 static int latch_on(void) { return song.gp[GP_PLAYMODE] == PLAY_LATCH; }
 static void set_playmode(int latch);
-static int harm_s = -1; /* LATCH: the string sounding a harmonic while B, or L1 and R1, are held */
+static int harm_s = -1; /* LATCH: the string sounding a harmonic while B, or L2 and R2, are held */
 static int harm_both;   /* ... started by both shoulders: it ends when either lets go */
-static int l1_s; /* the string L1 or L2 plays */
+static int pluck_s; /* the string L2 (or START + L2) plays */
+/* LATCH: the string R2 just bowed on or let go, and how it was before: used
+ * for an edit (R2 + another button), R2 puts it back as it was */
+static int r2_undo_s = -1, r2_undo_was;
 static int start_used;  /* START took part in a page change */
 /* some button drivers send a quick release and press while a button is
  * held: a bow survives a gap this short, and a pluck is not repeated */
 #define REPEAT_GAP_MS 70
-static int bow_release_ms, l1_up_ms = -1000;
+static int bow_release_ms, l2_up_ms = -1000;
 static int held[BTN_COUNT], hold_ms[BTN_COUNT], rep_ms[BTN_COUNT], rep_n[BTN_COUNT];
 static int quit, changed, now_ms, toast_ms;
 static char toast[48];
@@ -161,6 +165,7 @@ void ui_summary(void (*out)(const char *line))
 static int splash_ms; /* the start-up screen, until a button or this runs out */
 void ui_init(void) { splash_ms = 2500; }
 int ui_selected_string(void) { return cur_s; }
+int ui_page(void) { return page; }
 int ui_splash_showing(void) { return splash_ms > 0; }
 
 /* the Brick Pro's right stick: up / down plays HARM, left / right the
@@ -199,7 +204,8 @@ static void set_scale(int sc)
  *
  * The SOUND, COMPOSE and MIX pages are laid out as cells, each one
  * parameter; the d-pad moves to the nearest cell in its direction. */
-enum { CK_S, CK_G, CK_L, CK_F, CK_SLOT }; /* string, global, LFO, effect, preset slot */
+enum { CK_S, CK_G, CK_L, CK_F, CK_SLOT, CK_M, CK_MAP }; /* string, global, LFO, effect, preset slot,
+                                                           MIDI page setting, MIDI map entry */
 typedef struct {
     short x, y, w, h;
     char kind, a, b;
@@ -326,6 +332,269 @@ static void preset_clear(int i)
 #define PROGT_Y 230
 #define SONGC_Y 304
 
+/* ------------------------------------------------------------- MIDI page
+ * Which channel each voice listens on, the keys' channel, velocity,
+ * aftertouch, the mod wheel and bend (midi.h), then the CC map: a setting
+ * for each CC, the defaults below or learned (START + B on any control,
+ * then move a knob). All of it belongs to the Brick: kept in midi.cfg, not
+ * in songs or presets. */
+MidiCfg midi_cfg = {{0, 0, 0, 0, 0}, 0, 100, MT_BOW, MT_BOW, 2, KP_BOTH, KH_SONG, 0, 0, 4};
+static const char *const kp_names[NKP] = {"BOTH", "PLUCK", "BOW", "STRIKE"};
+static const char *const kh_names[NKH] = {"SONG", "GATE", "LATCH"};
+static const char *const mt_names[NMT] = {"OFF", "BOW", "TONE", "SWELL", "VIBRATO", "PITCH", "HARM", "FOLD", "BUZZ"};
+const char *midi_target_name(int t) { return t >= 0 && t < NMT ? mt_names[t] : "?"; }
+int midi_channel_voice(int ch)
+{
+    for (int s = 0; s < NS; s++)
+        if (midi_cfg.vch[s] == ch + 1)
+            return s;
+    if (midi_cfg.keys_ch == 0 || midi_cfg.keys_ch == ch + 1)
+        return cur_s;
+    return -1;
+}
+
+enum { M_VCH, M_KEYS = M_VCH + NS, M_VEL, M_AT, M_MOD, M_BEND, M_PLAY, M_HOLD, M_SHIFT, M_SNAP, M_POLY, NM };
+static const ParamDef m_defs[NM] = {{"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16},
+                                    {"KEYS", 0, 16}, {"VEL", 0, 100}, {"TOUCH", 0, NMT - 1},
+                                    {"MOD", 0, NMT - 1}, {"BEND", 1, 24}, {"PLAY", 0, NKP - 1},
+                                    {"HOLD", 0, NKH - 1}, {"SHIFT", -24, 24}, {"SNAP", 0, 1}, {"POLY", 1, 4}};
+static int *m_ref(int b)
+{
+    switch (b) {
+    case M_KEYS: return &midi_cfg.keys_ch;
+    case M_VEL: return &midi_cfg.vel;
+    case M_AT: return &midi_cfg.at_to;
+    case M_MOD: return &midi_cfg.mod_to;
+    case M_BEND: return &midi_cfg.bend;
+    case M_PLAY: return &midi_cfg.play;
+    case M_HOLD: return &midi_cfg.hold;
+    case M_SHIFT: return &midi_cfg.shift;
+    case M_SNAP: return &midi_cfg.snap;
+    case M_POLY: return &midi_cfg.poly;
+    default: return &midi_cfg.vch[b - M_VCH];
+    }
+}
+#define MIDI_Y (BODY_Y + 20)
+#define MAP_Y (BODY_Y + 162)
+#define MAP_COLS 3
+#define MAP_ROWS 9
+#define MAP_CW 213
+#define MAP_RH 24
+static int map_top; /* the first row of the map shown */
+
+/* the CC map; CK_S settings act on the voice of the channel the CC comes on */
+enum { CCK_STRING = 100, CCK_ON }; /* kinds beyond the cells' */
+typedef struct {
+    int cc, kind, a, b;
+} CcMap;
+/* the defaults: numbers MIDI leaves free, in blocks: 14-29 the voice,
+ * 85-90 the engine, 102-112 the rings, 113-119 the play; CC 2 chooses the
+ * string. The fixed CCs keep their meaning: 1 the mod wheel, 64 sustain,
+ * 74 tone, 91 space, 120 / 123 all off; they can't be learned. */
+static const CcMap cc_default[] = {
+    {2, CCK_STRING, 0, 0},
+    {3, CK_G, 0, GP_MODE},        {9, CK_G, 0, GP_SUB},
+    /* the voice */
+    {14, CK_S, 0, SP_NOTE},       {15, CK_S, 0, SP_FINE},     {16, CK_S, 0, SP_LEVEL},    {17, CK_S, 0, SP_BOW},
+    {18, CK_S, 0, SP_DECAY},      {19, CK_S, 0, SP_BRIGHT},   {20, CK_S, 0, SP_FOLD},     {21, CK_S, 0, SP_STIFF},
+    {22, CK_S, 0, SP_POS},        {23, CK_S, 0, SP_BUZZ},     {24, CK_S, 0, SP_HARM},     {25, CK_S, 0, SP_VOICE},
+    {26, CK_S, 0, SP_PAN},        {27, CK_S, 0, SP_LATK},     {28, CK_S, 0, SP_RELEASE},  {29, CCK_ON, 0, 0},
+    /* the engine */
+    {85, CK_G, 0, GP_ENGINE},     {86, CK_G, 0, GP_EXCITE},   {87, CK_G, 0, GP_MATERIAL}, {88, CK_G, 0, GP_SCALE},
+    {89, CK_G, 0, GP_ROOT},       {90, CK_G, 0, GP_BPM},
+    /* the voice's rings */
+    {102, CK_S, 0, RING_P(RING_PLUCK, 0)}, {103, CK_S, 0, RING_P(RING_PLUCK, 1)}, {104, CK_S, 0, RING_P(RING_PLUCK, 2)},
+    {105, CK_S, 0, RING_P(RING_PLUCK, 3)}, {106, CK_S, 0, RING_P(RING_BOW, 0)},   {107, CK_S, 0, RING_P(RING_BOW, 1)},
+    {108, CK_S, 0, RING_P(RING_BOW, 2)},   {109, CK_S, 0, RING_P(RING_BOW, 3)},   {110, CK_S, 0, SP_RATE},
+    {111, CK_S, 0, SP_PCHANCE},   {112, CK_S, 0, SP_BCHANCE},
+    /* the play */
+    {113, CK_G, 0, GP_PLAYMODE},  {114, CK_G, 0, GP_CHANGES}, {115, CK_G, 0, GP_DRIFT},   {116, CK_G, 0, GP_GLIDE},
+    {117, CK_G, 0, GP_CUTOFF},    {118, CK_G, 0, GP_MOTION},  {119, CK_G, 0, GP_MASTER},
+};
+#define NCC_DEFAULT ((int)(sizeof cc_default / sizeof cc_default[0]))
+#define NCCM 64
+static CcMap ccm[NCCM];
+static int nccm = -1; /* -1: not set up yet */
+static int midi_dirty_ms = -1; /* changed: written this long after */
+static int learn_on, learn_idx = -1; /* learning: a new entry, or entry learn_idx again */
+static CcMap learn_t;
+static const ParamDef map_def = {"CC", 0, 127};
+
+static void ccm_ready(void)
+{
+    if (nccm >= 0)
+        return;
+    memcpy(ccm, cc_default, sizeof cc_default);
+    nccm = NCC_DEFAULT;
+}
+
+static int cc_fixed(int cc) { return cc == 1 || cc == 64 || cc == 74 || cc == 91 || cc == 120 || cc == 123; }
+
+/* what a map entry (or a cell) sets, in a few words */
+static void target_name(int kind, int a, int b, char *n, int sz)
+{
+    static const char *const fx_pre[9] = {"DELAY ", "DELAY ", "DELAY ", "VERB ", "VERB ", "VERB ", "", "BIN ", "BIN "};
+    switch (kind) {
+    case CCK_STRING: snprintf(n, sz, "STRING"); break;
+    case CCK_ON: snprintf(n, sz, "STRING ON"); break;
+    case CK_S: snprintf(n, sz, "%s", sparam_def(b)->name); break;
+    case CK_G: snprintf(n, sz, "%s", gparam_def(b)->name); break;
+    case CK_L: snprintf(n, sz, "LFO%d %s", a + 1, lparam_def(b)->name); break;
+    case CK_F: snprintf(n, sz, "%s%s", b < 9 ? fx_pre[b] : "", fparam_def(b)->name); break;
+    default: snprintf(n, sz, "?"); break;
+    }
+}
+
+/* START + B on a control: learn it; again, or on the MIDI page's map, as below */
+static void learn_toggle(const Cell *c)
+{
+    char nm[32];
+    if (learn_on) {
+        learn_on = 0, learn_idx = -1;
+        say("LEARN CANCELLED");
+        return;
+    }
+    if (c && c->kind == CK_MAP) {
+        learn_on = 1, learn_idx = c->a;
+        target_name(ccm[(int)c->a].kind, ccm[(int)c->a].a, ccm[(int)c->a].b, nm, sizeof nm);
+    }
+    else if (c && (c->kind == CK_S || c->kind == CK_G || c->kind == CK_L || c->kind == CK_F)) {
+        learn_on = 1, learn_idx = -1;
+        learn_t = (CcMap){0, c->kind, c->kind == CK_L ? c->a : 0, c->b};
+        target_name(c->kind, learn_t.a, c->b, nm, sizeof nm);
+    }
+    else {
+        say("PICK A CONTROL TO LEARN");
+        return;
+    }
+    say("LEARN %s: MOVE A KNOB", nm);
+}
+
+int ui_midi_learning(void) { return learn_on; }
+
+/* a CC came while learning: it now sets the control (a CC sets one thing) */
+static void learn_cc(int cc)
+{
+    char nm[32];
+    learn_on = 0;
+    ccm_ready();
+    if (cc_fixed(cc)) {
+        say("CC %d IS FIXED: LEARN ANOTHER", cc);
+        learn_idx = -1;
+        return;
+    }
+    int k = learn_idx;
+    if (k < 0) /* the control already mapped: its CC moves */
+        for (int i = 0; i < nccm; i++)
+            if (ccm[i].kind == learn_t.kind && ccm[i].a == learn_t.a && ccm[i].b == learn_t.b)
+                k = i;
+    for (int i = 0; i < nccm; i++) /* the CC leaves whatever it set before */
+        if (i != k && ccm[i].cc == cc) {
+            memmove(&ccm[i], &ccm[i + 1], (size_t)(nccm - i - 1) * sizeof ccm[0]);
+            nccm--;
+            if (k > i)
+                k--;
+            i--;
+        }
+    if (k < 0) {
+        if (nccm >= NCCM) {
+            say("MIDI MAP FULL: DELETE ONE ON MIDI");
+            learn_idx = -1;
+            return;
+        }
+        k = nccm++;
+        ccm[k] = learn_t;
+    }
+    ccm[k].cc = cc;
+    learn_idx = -1;
+    target_name(ccm[k].kind, ccm[k].a, ccm[k].b, nm, sizeof nm);
+    say("CC %d: %s", cc, nm);
+    midi_dirty_ms = 0;
+}
+
+static void map_delete(int k)
+{
+    if (k < 0 || k >= nccm)
+        return;
+    say("CC %d FORGOTTEN", ccm[k].cc);
+    memmove(&ccm[k], &ccm[k + 1], (size_t)(nccm - k - 1) * sizeof ccm[0]);
+    nccm--;
+    midi_dirty_ms = 0;
+}
+
+#define MIDI_CFG_MAGIC "jdmidi 1"
+static void midi_cfg_path(char *b, int n) { snprintf(b, n, "%s/midi.cfg", preset_dir); }
+
+static void midi_save(void)
+{
+    char p[512];
+    midi_cfg_path(p, sizeof p);
+    FILE *f = fopen(p, "w");
+    if (!f)
+        return;
+    ccm_ready();
+    fprintf(f, "%s %d %d %d %d\n", MIDI_CFG_MAGIC, NSP, NGP, NLP, NFX);
+    fprintf(f, "vch");
+    for (int s = 0; s < NS; s++)
+        fprintf(f, " %d", midi_cfg.vch[s]);
+    fprintf(f, "\nkeys %d\nvel %d\nat %d\nmod %d\nbend %d\nplay %d\nhold %d\nshift %d\nsnap %d\npoly %d\nmaps %d\n",
+            midi_cfg.keys_ch, midi_cfg.vel, midi_cfg.at_to, midi_cfg.mod_to, midi_cfg.bend, midi_cfg.play, midi_cfg.hold,
+            midi_cfg.shift, midi_cfg.snap, midi_cfg.poly, nccm);
+    for (int i = 0; i < nccm; i++)
+        fprintf(f, "map %d %d %d %d\n", ccm[i].cc, ccm[i].kind, ccm[i].a, ccm[i].b);
+    fclose(f);
+}
+
+void ui_midi_load(void)
+{
+    char p[512], ln[128];
+    midi_cfg_path(p, sizeof p);
+    ccm_ready();
+    FILE *f = fopen(p, "r");
+    if (!f)
+        return;
+    int nsp, ngp, nlp, nfx, same = 0, n = 0, maps = -1;
+    CcMap m[NCCM];
+    if (fgets(ln, sizeof ln, f) && sscanf(ln, "jdmidi 1 %d %d %d %d", &nsp, &ngp, &nlp, &nfx) == 4)
+        same = nsp == NSP && ngp == NGP && nlp == NLP && nfx == NFX; /* the map's numbers mean the same */
+    while (fgets(ln, sizeof ln, f)) {
+        int a[5];
+        if (sscanf(ln, "vch %d %d %d %d %d", &a[0], &a[1], &a[2], &a[3], &a[4]) == 5)
+            for (int s = 0; s < NS; s++)
+                midi_cfg.vch[s] = clampi(a[s], 0, 16);
+        else if (sscanf(ln, "keys %d", &a[0]) == 1)
+            midi_cfg.keys_ch = clampi(a[0], 0, 16);
+        else if (sscanf(ln, "vel %d", &a[0]) == 1)
+            midi_cfg.vel = clampi(a[0], 0, 100);
+        else if (sscanf(ln, "at %d", &a[0]) == 1)
+            midi_cfg.at_to = clampi(a[0], 0, NMT - 1);
+        else if (sscanf(ln, "mod %d", &a[0]) == 1)
+            midi_cfg.mod_to = clampi(a[0], 0, NMT - 1);
+        else if (sscanf(ln, "bend %d", &a[0]) == 1)
+            midi_cfg.bend = clampi(a[0], 1, 24);
+        else if (sscanf(ln, "play %d", &a[0]) == 1)
+            midi_cfg.play = clampi(a[0], 0, NKP - 1);
+        else if (sscanf(ln, "hold %d", &a[0]) == 1)
+            midi_cfg.hold = clampi(a[0], 0, NKH - 1);
+        else if (sscanf(ln, "shift %d", &a[0]) == 1)
+            midi_cfg.shift = clampi(a[0], -24, 24);
+        else if (sscanf(ln, "snap %d", &a[0]) == 1)
+            midi_cfg.snap = clampi(a[0], 0, 1);
+        else if (sscanf(ln, "poly %d", &a[0]) == 1)
+            midi_cfg.poly = clampi(a[0], 1, 4);
+        else if (sscanf(ln, "maps %d", &a[0]) == 1)
+            maps = a[0];
+        else if (same && n < NCCM && sscanf(ln, "map %d %d %d %d", &a[0], &a[1], &a[2], &a[3]) == 4 && a[0] >= 0 &&
+                 a[0] < 128 && !cc_fixed(a[0]))
+            m[n++] = (CcMap){a[0], a[1], a[2], a[3]};
+    }
+    fclose(f);
+    if (same && maps >= 0) {
+        memcpy(ccm, m, sizeof m[0] * (size_t)n);
+        nccm = n;
+    }
+}
+
 static void layout(int pg)
 {
     ncell = 0;
@@ -369,6 +638,22 @@ static void layout(int pg)
                 cell(3 + c * 160, SONGC_Y + 3 * 37, 154, 34, CK_G, 0, GP_OUTPUT + c);
         }
         break;
+    case PAGE_MIDI:
+        for (int s = 0; s < NS; s++)
+            cell(s * cw + 3, MIDI_Y, cw - 6, 31, CK_M, 0, M_VCH + s);
+        for (int i = 0; i < 5; i++)
+            cell(i * cw + 3, MIDI_Y + 52, cw - 6, 31, CK_M, 0, M_KEYS + i);
+        for (int i = 0; i < 5; i++)
+            cell(i * cw + 3, MIDI_Y + 86, cw - 6, 31, CK_M, 0, M_PLAY + i);
+        ccm_ready();
+        if (map_top > 0 && map_top * MAP_COLS >= nccm)
+            map_top = nccm > 0 ? (nccm - 1) / MAP_COLS : 0;
+        for (int i = 0; i < MAP_COLS * MAP_ROWS; i++) {
+            int k = map_top * MAP_COLS + i;
+            if (k < nccm)
+                cell(3 + (i % MAP_COLS) * MAP_CW, MAP_Y + (i / MAP_COLS) * MAP_RH, MAP_CW - 6, MAP_RH - 3, CK_MAP, k, 0);
+        }
+        break;
     case PAGE_MIX:
         for (int s = 0; s < NS; s++) {
             cell(s * cw + 3, BODY_Y + 42, cw - 6, 31, CK_S, s, SP_LEVEL);
@@ -401,6 +686,8 @@ static int *cell_ref(const Cell *c, const ParamDef **d)
 {
     switch (c->kind) {
     case CK_SLOT: *d = &slot_def; return &dummy_val;
+    case CK_M: *d = &m_defs[(int)c->b]; return m_ref(c->b);
+    case CK_MAP: *d = &map_def; return c->a < nccm ? &ccm[(int)c->a].cc : &dummy_val;
     case CK_S: *d = sparam_def(c->b); return &song.sp[(int)c->a][(int)c->b];
     case CK_G: *d = gparam_def(c->b); return &song.gp[(int)c->b];
     case CK_L: *d = lparam_def(c->b); return &song.lfo[(int)c->a][(int)c->b];
@@ -412,6 +699,27 @@ static void cell_format(const Cell *c, char *v, int n)
 {
     switch (c->kind) {
     case CK_SLOT: v[0] = 0; (void)n; break;
+    case CK_MAP: snprintf(v, n, "CC %d", c->a < nccm ? ccm[(int)c->a].cc : 0); break;
+    case CK_M: {
+        int x = *m_ref(c->b);
+        if (c->b < M_KEYS || c->b == M_KEYS)
+            snprintf(v, n, x ? "CH %d" : c->b == M_KEYS ? "ANY" : "OFF", x);
+        else if (c->b == M_AT || c->b == M_MOD)
+            snprintf(v, n, "%s", midi_target_name(x));
+        else if (c->b == M_BEND)
+            snprintf(v, n, "+-%d", x);
+        else if (c->b == M_PLAY)
+            snprintf(v, n, "%s", kp_names[clampi(x, 0, NKP - 1)]);
+        else if (c->b == M_HOLD)
+            snprintf(v, n, "%s", kh_names[clampi(x, 0, NKH - 1)]);
+        else if (c->b == M_SHIFT)
+            snprintf(v, n, x > 0 ? "+%d" : "%d", x);
+        else if (c->b == M_SNAP)
+            snprintf(v, n, "%s", x ? "SCALE" : "OFF");
+        else
+            snprintf(v, n, "%d", x);
+        break;
+    }
     case CK_S: sparam_format(c->a, c->b, v, n); break;
     case CK_G: gparam_format(c->b, v, n); break;
     case CK_L: lparam_format(c->a, c->b, v, n); break;
@@ -434,6 +742,17 @@ static void nav(int dx, int dy)
         if (cost < bc)
             bc = cost, best = i;
     }
+    /* the MIDI map scrolls: past its last row shown, the next comes up */
+    if (best == cur && page == PAGE_MIDI && cells[cur].kind == CK_MAP && dy) {
+        int k = cells[cur].a + dy * MAP_COLS;
+        if (k >= 0 && k < nccm && map_top + dy >= 0) {
+            map_top += dy;
+            layout(page);
+            for (int i = 0; i < ncell; i++)
+                if (cells[i].kind == CK_MAP && cells[i].a == k)
+                    best = i;
+        }
+    }
     sel_cell[page] = best;
 }
 
@@ -449,6 +768,24 @@ static void adjust(int dir, int repeats)
     int *v = cell_ref(c, &d);
     int step = (repeats > 12 && d->max - d->min > 30) ? 4 : 1;
     int nv = clampi(*v + dir * step, d->min, d->max);
+    if (c->kind == CK_MAP) /* a CC not fixed, and not another entry's */
+        for (;;) {
+            int used = cc_fixed(nv);
+            for (int i = 0; i < nccm; i++)
+                used |= i != c->a && ccm[i].cc == nv;
+            if (!used || nv == d->min || nv == d->max)
+                break;
+            nv += dir;
+        }
+    if (c->kind == CK_M && c->b < M_KEYS) /* a channel no other voice has */
+        for (;;) {
+            int used = 0;
+            for (int s = 0; s < NS; s++)
+                used |= nv && s != c->b - M_VCH && midi_cfg.vch[s] == nv;
+            if (!used || nv == d->min || nv == d->max)
+                break;
+            nv += dir;
+        }
     if (c->kind == CK_S && c->b == SP_VOICE && held[BTN_R2]) {
         /* R2 + Y / X on VOICE: the previous / next family, strings, winds,
          * struck, starting at its first instrument */
@@ -474,6 +811,8 @@ static void set_cell(const Cell *c, const ParamDef *d, int *v, int nv)
         char nm[32];
         if (c->kind == CK_S)
             snprintf(nm, sizeof nm, "%d %s", c->a + 1, sparam_name(c->a, c->b));
+        else if (c->kind == CK_M && c->b < M_KEYS)
+            snprintf(nm, sizeof nm, "VOICE %d CH", c->b - M_VCH + 1);
         else if (c->kind == CK_L)
             snprintf(nm, sizeof nm, "LFO%d %s", c->a + 1, d->name);
         else
@@ -482,6 +821,11 @@ static void set_cell(const Cell *c, const ParamDef *d, int *v, int nv)
     }
     if (c->kind == CK_SLOT)
         return;
+    if (c->kind == CK_M || c->kind == CK_MAP) { /* the Brick's: written to midi.cfg a moment later */
+        *v = nv;
+        midi_dirty_ms = 0;
+        return;
+    }
     if (song.gp[GP_KEYLOCK] && c->kind == CK_G && (c->b == GP_SCALE || c->b == GP_ROOT || c->b == GP_MODALITY)) {
         say("KEY LOCKED");
         return;
@@ -583,6 +927,19 @@ static void play_action(int b)
     }
     if (r2) {
         r2_used = 1;
+        /* R2 held with another button is an edit, not a bow: the bow lifts */
+        if (bowing >= 0) {
+            hand_bow_ms += now_ms - bow_start_ms;
+            engine_bow(bowing, 0);
+            engine_overblow(bowing, 0);
+            bowing = -1;
+            bow_release_ms = 0;
+        }
+        /* LATCH: R2 bowed on (or let go) as it was pressed; used for an
+         * edit, the string goes back as it was */
+        if (r2_undo_s >= 0 && (live.latch[r2_undo_s] != LATCH_OFF) != (r2_undo_was != LATCH_OFF))
+            engine_latch(r2_undo_s, LATCH_BOW);
+        r2_undo_s = -1;
         switch (b) {
         case BTN_LEFT: set_scale(song.gp[GP_SCALE] - 1); return;
         case BTN_RIGHT: set_scale(song.gp[GP_SCALE] + 1); return;
@@ -620,7 +977,7 @@ static void play_action(int b)
                 harm_s = cur_s;
                 engine_overblow(cur_s, 1);
                 if (!live.latch[cur_s])
-                    say("%d IS NOT DRONING: L1 OR R1 FIRST", cur_s + 1);
+                    say("%d IS NOT DRONING: L2 OR R2 FIRST", cur_s + 1);
             }
             return;
         case BTN_UP:
@@ -663,8 +1020,6 @@ static void play_action(int b)
 /* LATCH: start or let go of string s, and say so */
 static void do_latch(int s, int how)
 {
-    if (!live.playing)
-        engine_set_playing(1);
     int st = engine_latch(s, how), wnd = engine_voice_wind(s), prc = engine_voice_perc(s);
     char rel[16];
     sparam_format(s, SP_RELEASE, rel, sizeof rel);
@@ -679,11 +1034,11 @@ static void do_latch(int s, int how)
         jdlog("latch voice %d %s", s + 1, st == LATCH_PLUCK ? "pluck" : st == LATCH_HAMMER ? "strike" : st == LATCH_BOW ? "bow" : "let go");
 }
 
-/* on PLAY, at once: L1 plucks (a wind: a tongued note), L2 drops the
- * dulcimer mallet (a wind: a flutter tongue) */
-static void fire_l1(int tap)
+/* on PLAY, at once: L2 plucks (a wind: a tongued note), START + L2 drops
+ * the dulcimer mallet (a wind: a flutter tongue) */
+static void fire_pluck(int tap)
 {
-    int s = l1_s;
+    int s = pluck_s;
     if (latch_on()) {
         do_latch(s, tap ? LATCH_HAMMER : LATCH_PLUCK);
         return;
@@ -703,51 +1058,61 @@ static void set_playmode(int latch)
     song.gp[GP_PLAYMODE] = latch ? PLAY_LATCH : PLAY_RINGS;
     engine_unlatch_all(); /* every string starts silent, or back to its rings */
     changed = 1;
-    say("%s", latch ? "LATCH: L1 PLUCKS, R1 BOWS, AGAIN LETS GO" : "RINGS: THE RHYTHMS PLAY");
+    say("%s", latch ? "LATCH: L2 PLUCKS, R2 BOWS, AGAIN LETS GO" : "RINGS: THE RHYTHMS PLAY");
 }
 
 static void action(int b, int repeats)
 {
     switch (b) {
     case BTN_L1:
-    case BTN_R1:
-        /* START + L1 / R1 changes page everywhere; L1 / R1 alone changes
-         * page on the edit pages, and plays the selected string on PLAY:
-         * L1 plucks, R1 bows while held */
-        if (held[BTN_START] || page != PAGE_PLAY) {
-            start_used |= held[BTN_START];
-            page = wrap(page + (b == BTN_R1 ? 1 : -1), PAGE_COUNT);
+    case BTN_R1: /* the previous / next page, everywhere */
+        start_used |= held[BTN_START];
+        page = wrap(page + (b == BTN_R1 ? 1 : -1), PAGE_COUNT);
+        return;
+    case BTN_L2:
+    case BTN_R2:
+        /* on PLAY the shoulders below play the selected string: L2 plucks,
+         * R2 bows while held; held, they still edit with the other buttons */
+        if (page != PAGE_PLAY || repeats)
+            return;
+        if (held[BTN_START]) { /* START + L2: the mallet; START + R2: the quiet view */
+            start_used = 1;
+            if (b == BTN_L2)
+                pluck_s = cur_s, fire_pluck(1);
+            else
+                quiet = !quiet;
+            return;
         }
-        else if (latch_on()) { /* LATCH: L1 plucks (a tap strikes), R1 bows; again, it lets go */
-            if (repeats)
-                return;
-            if (held[b == BTN_L1 ? BTN_R1 : BTN_L1]) { /* both shoulders, either order: harmonic / overblow */
+        if (latch_on()) { /* LATCH: L2 plucks, R2 bows; again, it lets go */
+            if (held[b == BTN_L2 ? BTN_R2 : BTN_L2]) { /* both shoulders, either order: harmonic / overblow */
                 if (harm_s >= 0 && harm_s != cur_s)
                     engine_overblow(harm_s, 0);
                 harm_s = cur_s, harm_both = 1;
                 engine_overblow(cur_s, 1);
                 return;
             }
-            if (b == BTN_R1)
+            if (b == BTN_R2) {
+                r2_undo_s = cur_s, r2_undo_was = live.latch[cur_s];
                 do_latch(cur_s, LATCH_BOW);
-            else /* L1: plucks it on at once (on a droning string, lets go) */
-                l1_s = cur_s, fire_l1(0);
+            }
+            else /* L2: plucks it on at once (on a droning string, lets go) */
+                pluck_s = cur_s, fire_pluck(0);
         }
-        else if (b == BTN_L1) {
-            if (bowing >= 0) /* already bowing: L1 overblows / touches a harmonic */
+        else if (b == BTN_L2) {
+            if (bowing >= 0) /* already bowing: L2 overblows / touches a harmonic */
                 engine_overblow(bowing, 1);
-            else if (!repeats) /* a pluck, at once */
-                l1_s = cur_s, fire_l1(0);
+            else /* a pluck, at once */
+                pluck_s = cur_s, fire_pluck(0);
         }
         else {
             bowing = cur_s;
             bow_start_ms = now_ms;
             if (jdlog_level() == LOG_DETAIL)
                 jdlog("hand %s voice %d%s", engine_voice_wind(cur_s) ? "blow" : "bow", cur_s + 1,
-                      held[BTN_L1] ? (engine_voice_wind(cur_s) ? ", overblown" : ", harmonic") : "");
+                      held[BTN_L2] ? (engine_voice_wind(cur_s) ? ", overblown" : ", harmonic") : "");
             engine_bow(cur_s, 1);
-            /* R1 added while L1 is held: overblow (wind) or a harmonic (strings) */
-            engine_overblow(cur_s, held[BTN_L1]);
+            /* R2 added while L2 is held: overblow (wind) or a harmonic (strings) */
+            engine_overblow(cur_s, held[BTN_L2]);
         }
         return;
     case BTN_START: return; /* acts on release, unless used for a page change */
@@ -764,8 +1129,20 @@ static void action(int b, int repeats)
             say("%s  %s", engine_scale_name(song.gp[GP_SCALE]), engine_chord_name());
         return;
     case BTN_MENU: quit = 1; return;
-    case BTN_L2:
-    case BTN_R2: return;
+    case BTN_B:
+        if (held[BTN_START]) { /* START + B: MIDI learn for the selected control (again: cancel) */
+            start_used = 1;
+            if (!repeats) {
+                const Cell *c = NULL;
+                if (page != PAGE_PLAY) {
+                    layout(page);
+                    c = sel_cell[page] < ncell ? &cells[sel_cell[page]] : NULL;
+                }
+                learn_toggle(c);
+            }
+            return;
+        }
+        break;
     case BTN_A:
         if (held[BTN_START]) { /* START + A: PLAY MODE RINGS or LATCH */
             start_used = 1;
@@ -781,6 +1158,21 @@ static void action(int b, int repeats)
         return;
     }
     int cs = cell_string();
+    if (page == PAGE_MIDI) { /* on the map: A learns its CC again, R2 + Y forgets it */
+        layout(page);
+        const Cell *c = sel_cell[page] < ncell ? &cells[sel_cell[page]] : NULL;
+        if (c && c->kind == CK_MAP && b == BTN_A) {
+            if (!repeats)
+                learn_toggle(c);
+            return;
+        }
+        if (c && c->kind == CK_MAP && b == BTN_Y && held[BTN_R2]) {
+            r2_used = 1;
+            if (!repeats)
+                map_delete(c->a);
+            return;
+        }
+    }
     if (page == PAGE_SONG) {
         layout(page);
         const Cell *c = sel_cell[page] < ncell ? &cells[sel_cell[page]] : NULL;
@@ -844,21 +1236,9 @@ void ui_button(int b, int down)
         l2_used = 0;
     if (b == BTN_R2 && down)
         r2_used = 0;
-    /* L2 on PLAY: the dulcimer mallet, dropped on the selected string at once
-     * (held, L2 still edits the rings with the d-pad); START + L2 toggles the
-     * quiet view */
-    if (b == BTN_L2 && down && page == PAGE_PLAY) {
-        if (held[BTN_START]) {
-            start_used = 1;
-            quiet = !quiet;
-            return;
-        }
-        l1_s = cur_s;
-        ui_lock();
-        fire_l1(1);
-        ui_unlock();
-    }
-    if (!down && harm_s >= 0 && (b == BTN_B ? !harm_both : harm_both && (b == BTN_L1 || b == BTN_R1))) {
+    if (b == BTN_R2)
+        r2_undo_s = -1;
+    if (!down && harm_s >= 0 && (b == BTN_B ? !harm_both : harm_both && (b == BTN_L2 || b == BTN_R2))) {
         /* LATCH: letting go of B (or of either shoulder) ends the harmonic */
         harm_both = 0;
         ui_lock();
@@ -867,23 +1247,23 @@ void ui_button(int b, int down)
         harm_s = -1;
         return;
     }
-    if (b == BTN_R1 && !down && bowing >= 0) {
-        bow_release_ms = REPEAT_GAP_MS; /* stops in ui_tick unless R1 comes back */
+    if (b == BTN_R2 && !down && bowing >= 0) {
+        bow_release_ms = REPEAT_GAP_MS; /* stops in ui_tick unless R2 comes back */
         return;
     }
-    if (b == BTN_R1 && down && bowing >= 0) {
+    if (b == BTN_R2 && down && bowing >= 0) {
         bow_release_ms = 0; /* still bowing the same string */
         return;
     }
-    if (b == BTN_L1 && page == PAGE_PLAY && !held[BTN_START]) {
-        if (!down && bowing >= 0) { /* letting go of L1: back to the plain bow */
+    if (b == BTN_L2 && page == PAGE_PLAY && !held[BTN_START]) {
+        if (!down && bowing >= 0) { /* letting go of L2: back to the plain bow */
             ui_lock();
             engine_overblow(bowing, 0);
             ui_unlock();
         }
         if (!down)
-            l1_up_ms = now_ms;
-        else if (now_ms - l1_up_ms < REPEAT_GAP_MS)
+            l2_up_ms = now_ms;
+        else if (now_ms - l2_up_ms < REPEAT_GAP_MS)
             return; /* a glitch, not a new pluck */
     }
     if (b == BTN_START) {
@@ -891,7 +1271,15 @@ void ui_button(int b, int down)
             start_used = 0;
         else if (!start_used) { /* a plain tap: start or stop the drone */
             ui_lock();
+            int stopping = live.playing;
             engine_set_playing(!live.playing);
+            if (stopping) /* stopping lets the latched strings go too, each over its RELEASE */
+                for (int s = 0; s < NS; s++)
+                    if (live.latch[s] != LATCH_OFF) {
+                        if (harm_s == s)
+                            engine_overblow(s, 0), harm_s = -1;
+                        engine_latch(s, LATCH_OFF);
+                    }
             ui_unlock();
             say("%s", live.playing ? "DRONE ON" : "DRONE OFF");
         }
@@ -924,7 +1312,7 @@ void ui_tick(int ms)
         chords_seen++;
         jdlog("chord %s (%s)", engine_chord_name(), engine_scale_name(song.gp[GP_SCALE]));
     }
-    if (bow_release_ms > 0 && (bow_release_ms -= ms) <= 0 && bowing >= 0 && !held[BTN_R1]) {
+    if (bow_release_ms > 0 && (bow_release_ms -= ms) <= 0 && bowing >= 0 && !held[BTN_R2]) {
         hand_bow_ms += now_ms - bow_start_ms;
         if (jdlog_level() == LOG_DETAIL)
             jdlog("hand release voice %d after %.1f s", bowing + 1, (now_ms - bow_start_ms) / 1000.0);
@@ -936,6 +1324,10 @@ void ui_tick(int ms)
     }
     if (toast_ms > 0)
         toast_ms -= ms;
+    if (midi_dirty_ms >= 0 && (midi_dirty_ms += ms) > 1000) { /* the MIDI page's settings, a moment after a change */
+        midi_dirty_ms = -1;
+        midi_save();
+    }
     for (int b = 0; b < BTN_COUNT; b++) {
         if (!held[b] || !repeatable(b))
             continue;
@@ -1109,35 +1501,20 @@ static void draw_logo_a(float x, float y, float h, float edge, uint32_t fill, ui
     }
 }
 
-static void draw_logo(float x, float y, float h, float edge, uint32_t fill, uint32_t col)
-{
-    draw_logo_a(x, y, h, edge, fill, col, 255);
-}
-
 static void draw_header(void)
 {
-    int x0_tabs;
     gfx_fill(0, 0, SCREEN_W, HEADER_H, C_PANEL);
     /* the roofline: one copper edge across the band */
-    slant(150, HEADER_H - 3, SCREEN_W, HEADER_H - 16, 3, C_COPPER);
-    /* the wordmark on a cedar board, its top cut to the two roofs */
-    {
-        float h = 26.f, k = h / LOGO_H, lx = 14.f, ly = 9.f, w = LOGO_W * k;
-        float xy[10] = {0, 0, lx + LOGO_VALLEY_X * k, ly - 5 + LOGO_VALLEY_Y * k, lx + w + 12, 0, lx + w + 4, HEADER_H - 6, 0,
-                        HEADER_H - 6};
-        xy[1] = ly - 5 + (LOGO_ROOF_L - (LOGO_VALLEY_Y - LOGO_ROOF_L) * lx / (LOGO_VALLEY_X * k)) * k;
-        xy[5] = ly - 5 + LOGO_ROOF_R * k;
-        gfx_poly(xy, 5, C_CEDARWOOD);
-        draw_logo(lx, ly, h, 1.f, C_SLATE, C_SLATE_D);
-        x0_tabs = (int)(lx + w + 22);
-    }
-    int x = x0_tabs;
+    slant(0, HEADER_H - 3, SCREEN_W, HEADER_H - 16, 3, C_COPPER);
+    /* the six pages, as tabs across the left */
+    int x = 10;
     for (int p = 0; p < PAGE_COUNT; p++) {
-        int w = gfx_text_w(page_names[p], FONT_SMALL) + 12;
+        int w = gfx_text_w(page_names[p], FONT_SMALL) + 16;
         para(x, 10, w, 24, 6, p == page ? C_COPPER : C_PANEL2);
-        gfx_text(x + 9, 11, page_names[p], p == page ? 0x000000 : C_DIM, FONT_SMALL);
+        gfx_text(x + 10, 11, page_names[p], p == page ? 0x000000 : C_DIM, FONT_SMALL);
         x += w + 6;
     }
+    /* the key and tempo; left of them the beat, Wi-Fi sync and the log */
     char s[24], nm[8];
     note_name(song.gp[GP_ROOT], nm, sizeof nm);
     snprintf(s, sizeof s, "%s %d", nm, song.gp[GP_BPM]);
@@ -1150,26 +1527,31 @@ static void draw_header(void)
     }
     else
         gfx_ring(ix + 8, 24, 7.f, 2.f, C_DIM);
-    if (jdlog_level() != LOG_OFF)
-        gfx_text(ix - 16 - gfx_text_w("LOG", FONT_SMALL), 24, "LOG", jdlog_level() == LOG_DETAIL ? C_SEA : C_DIM, FONT_SMALL);
+    int lx = ix - 8;
     if (song.gp[GP_SYNC] != SYNC_OFF) {
         const SyncStatus *ss = sync_status();
         int linked = ss->leading || ss->have_leader;
         const char *t = ss->leading ? "LEAD" : ss->have_leader ? "FOLLOW" : "SYNC";
         int w = gfx_text_w(t, FONT_SMALL) + 16;
-        para(ix - w - 14, 12, w, 22, 6, linked ? C_SEA : C_PANEL2);
-        gfx_text(ix - w - 14 + 11, 13, t, linked ? 0x000000 : C_DIM, FONT_SMALL);
+        lx -= w + 6;
+        para(lx, 12, w, 22, 6, linked ? C_SEA : C_PANEL2);
+        gfx_text(lx + 11, 13, t, linked ? 0x000000 : C_DIM, FONT_SMALL);
+    }
+    if (jdlog_level() != LOG_OFF) {
+        lx -= gfx_text_w("LOG", FONT_SMALL) + 10;
+        gfx_text(lx, 13, "LOG", jdlog_level() == LOG_DETAIL ? C_SEA : C_DIM, FONT_SMALL);
     }
 }
 
 static void draw_footer(void)
 {
     static const char *const hints[PAGE_COUNT] = {
-        "A:ON/OFF B:FEWER X:ROTATE Y:NEW L1:PLUCK R1:BOW L2:EDIT R2:SOUND",
+        "A:ON/OFF B:FEWER Y:NEW L2:PLUCK R2:BOW L2+R2:HARM L1/R1:PAGE",
         "D-PAD:MOVE Y:- X:+ A:MUTE B:PLUCK L1/R1:PAGE SEL:CHORD",
         "D-PAD:MOVE Y:- X:+ B:PLUCK L1/R1:PAGE SEL:NEXT CHORD",
         "D-PAD:MOVE Y:- X:+ A:MUTE B:PLUCK L1/R1:PAGE SEL:CHORD",
         "PRESET A:LOAD X:SAVE R2+Y:CLEAR  PROG R2+Y:CLEAR  SEL:CHORD",
+        "D-PAD:MOVE Y:- X:+ A:LEARN R2+Y:FORGET ST+B:LEARN L1/R1:PAGE",
     };
     const char *h = hints[page];
     int vs = page == PAGE_PLAY ? cur_s : cell_string(); /* the voice under the cursor */
@@ -1184,16 +1566,18 @@ static void draw_footer(void)
         h = cw_ ? "D-PAD:MOVE Y:- X:+ A:MUTE B:TONGUE R2+Y/X:FAMILY SEL:CHORD"
                 : "D-PAD:MOVE Y:- X:+ A:MUTE B:PLUCK R2+Y/X:FAMILY SEL:CHORD";
     if (page == PAGE_PLAY && latch_on())
-        h = cw_   ? "L1:TONGUE L2:FLUTTER R1:BLOW B:OVERBLOW Y/X:ATK ^v:REL"
-            : cp_ ? "L1:STRIKE L2:DROP R1:BOW B:HARMONIC Y/X:ATK ^v:REL A:ALL GO"
-                  : "L1:PLUCK L2:DROP R1:BOW B:HARMONIC Y/X:ATK ^v:REL A:ALL GO";
+        h = cw_   ? "L2:TONGUE R2:BLOW B:OVERBLOW Y/X:ATK ^v:REL L1/R1:PAGE"
+            : cp_ ? "L2:STRIKE R2:BOW B:HARMONIC Y/X:ATK ^v:REL A:ALL GO L1/R1:PAGE"
+                  : "L2:PLUCK R2:BOW B:HARMONIC Y/X:ATK ^v:REL A:ALL GO L1/R1:PAGE";
     else if (page == PAGE_PLAY && cp_)
-        h = "A:ON/OFF B:FEWER Y:NEW L1:STRIKE L2:DROP R1:BOW L1+R1:HARM";
+        h = "A:ON/OFF B:FEWER Y:NEW L2:STRIKE R2:BOW L2+R2:HARM L1/R1:PAGE";
     else if (page == PAGE_PLAY && cw_)
-        h = "A:ON/OFF B:FEWER Y:NEW L1:TONGUE L2:FLUTTER R1:BLOW L1+R1:OVER";
+        h = "A:ON/OFF B:FEWER Y:NEW L2:TONGUE R2:BLOW L2+R2:OVER L1/R1:PAGE";
     else if (page == PAGE_PLAY)
-        h = "A:ON/OFF B:FEWER Y:NEW L1:PLUCK L2:DROP R1:BOW L1+R1:HARM";
-    if (page == PAGE_PLAY && held[BTN_L2])
+        h = "A:ON/OFF B:FEWER Y:NEW L2:PLUCK R2:BOW L2+R2:HARM L1/R1:PAGE";
+    if (learn_on)
+        h = "LEARNING: MOVE A KNOB OR SLIDER   START+B: CANCEL";
+    else if (page == PAGE_PLAY && held[BTN_L2])
         h = "L2+ ^v:STEPS <>:RATE X:MORE PULSES Y:ROTATE BACK A:MUTE";
     else if (page == PAGE_PLAY && held[BTN_R2])
         h = "R2+ X/Y:RING CHANCE <>:SCALE ^v:TONE A/B:BODY";
@@ -1218,6 +1602,8 @@ static uint32_t cell_col(const Cell *c)
 {
     if (c->kind == CK_S)
         return scol[(int)c->a];
+    if (c->kind == CK_M)
+        return c->b < M_KEYS ? scol[c->b - M_VCH] : C_SEA;
     if (c->kind == CK_L)
         return c->a ? C_SAND : C_COPPER;
     if (c->kind == CK_F && c->b >= FX_SCOUNT)
@@ -1240,8 +1626,8 @@ static void draw_cells(void)
     layout(page);
     for (int i = 0; i < ncell; i++) {
         const Cell *c = &cells[i];
-        if (c->kind == CK_SLOT)
-            continue; /* drawn as tiles by draw_song */
+        if (c->kind == CK_SLOT || c->kind == CK_MAP)
+            continue; /* drawn as tiles by draw_song, as a list by draw_midi */
         const ParamDef *d;
         int *v = cell_ref(c, &d);
         char val[24];
@@ -1265,7 +1651,13 @@ static void draw_cells(void)
             on = 0; /* no clock in stereo */
         if (c->kind == CK_S && c->b == SP_PAN && song.gp[GP_OUTPUT] == OUT_MONO_CLOCK)
             on = 0; /* mono + clock plays every voice from the centre */
-        param_row(c->x, c->y, c->w, c->h, i == sel_cell[page], on, c->kind == CK_S ? sparam_name(c->a, c->b) : d->name, val, t,
+        char mn[16];
+        if (c->kind == CK_M && c->b < M_KEYS)
+            snprintf(mn, sizeof mn, "VOICE %d", c->b - M_VCH + 1);
+        if (c->kind == CK_M && c->b < M_KEYS && !*v)
+            on = 0;
+        param_row(c->x, c->y, c->w, c->h, i == sel_cell[page], on,
+                  c->kind == CK_S ? sparam_name(c->a, c->b) : c->kind == CK_M && c->b < M_KEYS ? mn : d->name, val, t,
                   d->min < 0, cell_col(c));
         /* the rows the right stick plays, on the string it plays: a mark at
          * the right edge, lit while the stick moves them */
@@ -1534,6 +1926,38 @@ static void draw_song(void)
     draw_cells();
 }
 
+/* MIDI: the voices' channels, how the keys play, then the CC map */
+static void draw_midi(void)
+{
+    layout(page);
+    gfx_text(8, BODY_Y, "EACH VOICE'S CHANNEL (KEYS: THE SELECTED VOICE)", C_DIM, FONT_SMALL);
+    gfx_text(8, MIDI_Y + 34, "HOW THE KEYS PLAY", C_DIM, FONT_SMALL);
+    char hd[64];
+    snprintf(hd, sizeof hd, "CC MAP  %d  (START+B ON ANY CONTROL: LEARN)", nccm);
+    gfx_text(8, MAP_Y - 22, hd, learn_on ? C_RED : C_DIM, FONT_SMALL);
+    draw_cells();
+    for (int i = 0; i < ncell; i++) {
+        const Cell *c = &cells[i];
+        if (c->kind != CK_MAP)
+            continue;
+        int k = c->a, sel = i == sel_cell[page], learning = learn_on && learn_idx == k;
+        const CcMap *m = &ccm[k];
+        uint32_t col = m->kind == CK_S || m->kind == CCK_STRING || m->kind == CCK_ON ? C_SAND : C_COPPER;
+        chamfer(c->x, c->y, c->w, c->h, 6, sel ? gfx_mix(C_PANEL2, col, 0.22f) : C_PANEL);
+        if (sel)
+            gfx_fill(c->x, c->y, 3, c->h, col);
+        char nm[32], v[16];
+        target_name(m->kind, m->a, m->b, nm, sizeof nm);
+        snprintf(v, sizeof v, learning ? "LEARN" : "CC %d", m->cc);
+        gfx_text(c->x + 9, c->y + 1, nm, sel ? col : C_TEXT, FONT_SMALL);
+        gfx_text(c->x + c->w - 9 - gfx_text_w(v, FONT_SMALL), c->y + 1, v, learning ? C_RED : C_DIM, FONT_SMALL);
+    }
+    if (map_top > 0)
+        gfx_text(SCREEN_W - 22, MAP_Y - 22, "^", C_DIM, FONT_SMALL);
+    if ((map_top + MAP_ROWS) * MAP_COLS < nccm)
+        gfx_text(SCREEN_W - 22, FOOTER_Y - 18, "v", C_DIM, FONT_SMALL);
+}
+
 /* a Euclidean ring as geometry: the steps are the corners of a polygon, the
  * pulses are joined into a second polygon inside it, which lights on a hit.
  * glow (0..1) fills it: the flash for plucks, the bow's swell for bows. */
@@ -1627,7 +2051,7 @@ static void draw_latch(int s, int x, int y, int w, int h, uint32_t col, int sel,
                        : st == LATCH_PLUCK ? (wnd ? "TONGUED" : prc ? "STRUCK" : "PLUCKED")
                        : st == LATCH_BOW ? (wnd ? "BLOWN" : "BOWED")
                        : lv > 0.02f      ? "FADING"
-                                         : (wnd ? "L1 / R1" : "L1 / R1");
+                                         : "L2 / R2";
     gfx_text(x + w / 2 - gfx_text_w(word, FONT_SMALL) / 2, (int)(yb - h * 0.45f), word, st ? C_TEXT : C_DIM, FONT_SMALL);
     char rel[16], atk[16], lb[24];
     sparam_format(s, SP_RELEASE, rel, sizeof rel);
@@ -1802,6 +2226,7 @@ void ui_draw(uint32_t *fb)
     case PAGE_SOUND: draw_sound(); break;
     case PAGE_COMPOSE: draw_compose(); break;
     case PAGE_SONG: draw_song(); break;
+    case PAGE_MIDI: draw_midi(); break;
     default: draw_mix(); break;
     }
     draw_footer();
@@ -1810,53 +2235,20 @@ void ui_draw(uint32_t *fb)
 
 /* ------------------------------------------------------------- MIDI CC */
 
-/* The important voice, engine and play settings have a MIDI CC, all on one
- * channel (any channel is heard). The voice and ring CCs act on the selected
- * string, as the buttons do; CC 2 selects it. The numbers are ones MIDI
- * leaves free, in blocks: 14-29 the voice, 85-90 the engine, 102-112 the
- * rings, 113-119 the play. A CC's 0-127 spans the setting's range. The fixed
- * CCs keep their meaning: 1 bow, 64 sustain, 74 tone, 91 space, 120 / 123
- * all off. */
-enum { CCK_STRING = 100, CCK_ON }; /* kinds beyond the cells' */
-typedef struct {
-    unsigned char cc, kind, b;
-} CcMap;
-static const CcMap cc_map[] = {
-    {2, CCK_STRING, 0},
-    {3, CK_G, GP_MODE},        {9, CK_G, GP_SUB},
-    /* the voice: the selected string */
-    {14, CK_S, SP_NOTE},       {15, CK_S, SP_FINE},     {16, CK_S, SP_LEVEL},    {17, CK_S, SP_BOW},
-    {18, CK_S, SP_DECAY},      {19, CK_S, SP_BRIGHT},   {20, CK_S, SP_FOLD},     {21, CK_S, SP_STIFF},
-    {22, CK_S, SP_POS},        {23, CK_S, SP_BUZZ},     {24, CK_S, SP_HARM},     {25, CK_S, SP_VOICE},
-    {26, CK_S, SP_PAN},        {27, CK_S, SP_LATK},     {28, CK_S, SP_RELEASE},  {29, CCK_ON, 0},
-    /* the engine */
-    {85, CK_G, GP_ENGINE},     {86, CK_G, GP_EXCITE},   {87, CK_G, GP_MATERIAL}, {88, CK_G, GP_SCALE},
-    {89, CK_G, GP_ROOT},       {90, CK_G, GP_BPM},
-    /* the selected string's rings */
-    {102, CK_S, RING_P(RING_PLUCK, 0)}, {103, CK_S, RING_P(RING_PLUCK, 1)}, {104, CK_S, RING_P(RING_PLUCK, 2)},
-    {105, CK_S, RING_P(RING_PLUCK, 3)}, {106, CK_S, RING_P(RING_BOW, 0)},   {107, CK_S, RING_P(RING_BOW, 1)},
-    {108, CK_S, RING_P(RING_BOW, 2)},   {109, CK_S, RING_P(RING_BOW, 3)},   {110, CK_S, SP_RATE},
-    {111, CK_S, SP_PCHANCE},   {112, CK_S, SP_BCHANCE},
-    /* the play */
-    {113, CK_G, GP_PLAYMODE},  {114, CK_G, GP_CHANGES}, {115, CK_G, GP_DRIFT},   {116, CK_G, GP_GLIDE},
-    {117, CK_G, GP_CUTOFF},    {118, CK_G, GP_MOTION},  {119, CK_G, GP_MASTER},
-};
-#define NCC_MAP ((int)(sizeof cc_map / sizeof cc_map[0]))
-
-static const CcMap *cc_find(int cc)
-{
-    for (int i = 0; i < NCC_MAP; i++)
-        if (cc_map[i].cc == cc)
-            return &cc_map[i];
-    return NULL;
-}
-
 int ui_midi_cc(int ch, int cc, int v)
 {
-    (void)ch;
-    const CcMap *m = cc_find(cc);
+    ccm_ready();
+    if (learn_on) {
+        learn_cc(cc);
+        return 1;
+    }
+    const CcMap *m = NULL;
+    for (int i = 0; i < nccm && !m; i++)
+        if (ccm[i].cc == cc)
+            m = &ccm[i];
     if (!m)
         return 0;
+    int vs = midi_channel_voice(ch), s = vs >= 0 ? vs : cur_s; /* the voice of the channel */
     v = v < 0 ? 0 : v > 127 ? 127 : v;
     if (m->kind == CCK_STRING) {
         int s = v * NS / 128;
@@ -1868,16 +2260,16 @@ int ui_midi_cc(int ch, int cc, int v)
     }
     if (m->kind == CCK_ON) {
         int on = v >= 64;
-        if (song.on[cur_s] != on) {
-            song.on[cur_s] = on;
+        if (song.on[s] != on) {
+            song.on[s] = on;
             changed = 1;
-            say("STRING %d %s", cur_s + 1, on ? "ON" : "MUTED");
+            say("STRING %d %s", s + 1, on ? "ON" : "MUTED");
         }
         return 1;
     }
     Cell c;
     memset(&c, 0, sizeof c);
-    c.kind = (char)m->kind, c.a = (char)cur_s, c.b = (char)m->b;
+    c.kind = (char)m->kind, c.a = (char)(m->kind == CK_S ? s : m->a), c.b = (char)m->b;
     const ParamDef *d;
     int *p = cell_ref(&c, &d);
     set_cell(&c, d, p, d->min + ((d->max - d->min) * v + 63) / 127);
@@ -1888,8 +2280,8 @@ int ui_midi_cc(int ch, int cc, int v)
 void ui_midi_chart(FILE *f)
 {
     fprintf(f, "| CC | Setting | Range |\n|---|---|---|\n");
-    for (int i = 0; i < NCC_MAP; i++) {
-        const CcMap *m = &cc_map[i];
+    for (int i = 0; i < NCC_DEFAULT; i++) {
+        const CcMap *m = &cc_default[i];
         if (m->kind == CCK_STRING) {
             fprintf(f, "| %d | STRING: the one the string CCs act on | 0-25 1, 26-50 2, 51-76 3, 77-101 4, "
                        "102-127 5 |\n", m->cc);
