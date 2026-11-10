@@ -23,7 +23,7 @@ float sticks_reach(int axis, int dir); /* what has been learned (dir 0: negative
 
 /* how hard the left stick bows, from how far up it is (0 .. 1): 0 for not
  * at all, then a light touch (0.1) to the engine's hardest (1.5, half
- * again as hard as R1) */
+ * again as hard as R2) */
 float stick_bow_pressure(float up);
 /* a control played from a stick: at the centre the song's value (set),
  * pushed fully one way its max, the other way its min. *held is the value

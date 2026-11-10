@@ -96,7 +96,7 @@ jobs:
           grep -q "render split: two threads 1, .*same sound 1" $r
           # USB MIDI and the Brick Pro's sticks
           grep -q "midi key: A3 -> .*(want 220: 1)" $r
-          grep -q "^midi voices: .*muted skipped (1): 1$" $r
+          grep -q "^midi keys: .*(1: 1): 1$" $r
           grep -q "^midi cc: .*not queued: 1$" $r
           # the MIDI chart's CC table is the one the app uses
           build/jd_test --midi-chart > cc.md
@@ -146,10 +146,11 @@ jobs:
           grep -q "air in latch: .*(want them singing: 1), a listener refuses the latch 1" $r
           grep -q "latch attack: .*: 1)" $r
           grep -q "latch harmonic: .*(x2.0" $r
-          grep -q "buttons: L1 -> PLUCK, L2 -> STRIKE" $r
+          grep -q "buttons: L2 -> PLUCK, START + L2 -> STRIKE" $r
+          grep -q "^shoulders: .*: 1$" $r
           grep -q "mallet drop: .*(want 3 or more: 1); .*(want a flutter: 1)" $r
           grep -q "strike: .*brighter: 1)" $r
-          grep -q "both shoulders: LATCH R1 then L1 .*(x2.00), let go .*, still droning 1; L1 then R1 x2.00; RINGS R1 then L1 .*(x2.00)" $r
+          grep -q "both shoulders: LATCH R2 then L2 .*(x2.00), let go .*, still droning 1; L2 then R2 x2.00; RINGS R2 then L2 .*(x2.00)" $r
           grep -q "struck checks: tune 1, drum shorter 1, bowl sings 1, cymbal sings 1, hard brighter 1, touch higher 1" $r
           grep -q "family jump: LIP -> GENDER -> STRING" $r
           grep -q "metal drone: RING DRONE, .*(want over 70%: 1); beyond: 3/3 sound" $r

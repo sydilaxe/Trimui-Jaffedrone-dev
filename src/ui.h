@@ -26,6 +26,7 @@ int ui_quit_requested(void);
 int ui_splash_showing(void); /* the start-up screen is up */
 int ui_take_changed(void);
 int ui_selected_string(void);      /* the string hand playing plays (the sticks, too) */
+int ui_page(void); /* the page shown (PAGE_PLAY ..) */
 void ui_notice(const char *msg);
 /* MIDI CC: the important settings, by CC number (any channel); 1 if it was
  * one. Main thread. ui_midi_chart writes the CC table of the MIDI chart. */

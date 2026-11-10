@@ -44,17 +44,20 @@ static int page, cur_s;
 static int ring;  /* PLAY: the selected ring of the selected string */
 static int quiet; /* PLAY: the quiet view, strings and rings only */
 static int l2_used, r2_used;
-static int bowing = -1; /* the string bowed by hand (R1 held) */
+static int bowing = -1; /* the string bowed by hand (R2 held) */
 static int latch_on(void) { return song.gp[GP_PLAYMODE] == PLAY_LATCH; }
 static void set_playmode(int latch);
-static int harm_s = -1; /* LATCH: the string sounding a harmonic while B, or L1 and R1, are held */
+static int harm_s = -1; /* LATCH: the string sounding a harmonic while B, or L2 and R2, are held */
 static int harm_both;   /* ... started by both shoulders: it ends when either lets go */
-static int l1_s; /* the string L1 or L2 plays */
+static int pluck_s; /* the string L2 (or START + L2) plays */
+/* LATCH: the string R2 just bowed on or let go, and how it was before: used
+ * for an edit (R2 + another button), R2 puts it back as it was */
+static int r2_undo_s = -1, r2_undo_was;
 static int start_used;  /* START took part in a page change */
 /* some button drivers send a quick release and press while a button is
  * held: a bow survives a gap this short, and a pluck is not repeated */
 #define REPEAT_GAP_MS 70
-static int bow_release_ms, l1_up_ms = -1000;
+static int bow_release_ms, l2_up_ms = -1000;
 static int held[BTN_COUNT], hold_ms[BTN_COUNT], rep_ms[BTN_COUNT], rep_n[BTN_COUNT];
 static int quit, changed, now_ms, toast_ms;
 static char toast[48];
@@ -161,6 +164,7 @@ void ui_summary(void (*out)(const char *line))
 static int splash_ms; /* the start-up screen, until a button or this runs out */
 void ui_init(void) { splash_ms = 2500; }
 int ui_selected_string(void) { return cur_s; }
+int ui_page(void) { return page; }
 int ui_splash_showing(void) { return splash_ms > 0; }
 
 /* the Brick Pro's right stick: up / down plays HARM, left / right the
@@ -583,6 +587,11 @@ static void play_action(int b)
     }
     if (r2) {
         r2_used = 1;
+        /* LATCH: R2 bowed on (or let go) as it was pressed; used for an
+         * edit, the string goes back as it was */
+        if (r2_undo_s >= 0 && (live.latch[r2_undo_s] != LATCH_OFF) != (r2_undo_was != LATCH_OFF))
+            engine_latch(r2_undo_s, LATCH_BOW);
+        r2_undo_s = -1;
         switch (b) {
         case BTN_LEFT: set_scale(song.gp[GP_SCALE] - 1); return;
         case BTN_RIGHT: set_scale(song.gp[GP_SCALE] + 1); return;
@@ -620,7 +629,7 @@ static void play_action(int b)
                 harm_s = cur_s;
                 engine_overblow(cur_s, 1);
                 if (!live.latch[cur_s])
-                    say("%d IS NOT DRONING: L1 OR R1 FIRST", cur_s + 1);
+                    say("%d IS NOT DRONING: L2 OR R2 FIRST", cur_s + 1);
             }
             return;
         case BTN_UP:
@@ -679,11 +688,11 @@ static void do_latch(int s, int how)
         jdlog("latch voice %d %s", s + 1, st == LATCH_PLUCK ? "pluck" : st == LATCH_HAMMER ? "strike" : st == LATCH_BOW ? "bow" : "let go");
 }
 
-/* on PLAY, at once: L1 plucks (a wind: a tongued note), L2 drops the
- * dulcimer mallet (a wind: a flutter tongue) */
-static void fire_l1(int tap)
+/* on PLAY, at once: L2 plucks (a wind: a tongued note), START + L2 drops
+ * the dulcimer mallet (a wind: a flutter tongue) */
+static void fire_pluck(int tap)
 {
-    int s = l1_s;
+    int s = pluck_s;
     if (latch_on()) {
         do_latch(s, tap ? LATCH_HAMMER : LATCH_PLUCK);
         return;
@@ -703,51 +712,61 @@ static void set_playmode(int latch)
     song.gp[GP_PLAYMODE] = latch ? PLAY_LATCH : PLAY_RINGS;
     engine_unlatch_all(); /* every string starts silent, or back to its rings */
     changed = 1;
-    say("%s", latch ? "LATCH: L1 PLUCKS, R1 BOWS, AGAIN LETS GO" : "RINGS: THE RHYTHMS PLAY");
+    say("%s", latch ? "LATCH: L2 PLUCKS, R2 BOWS, AGAIN LETS GO" : "RINGS: THE RHYTHMS PLAY");
 }
 
 static void action(int b, int repeats)
 {
     switch (b) {
     case BTN_L1:
-    case BTN_R1:
-        /* START + L1 / R1 changes page everywhere; L1 / R1 alone changes
-         * page on the edit pages, and plays the selected string on PLAY:
-         * L1 plucks, R1 bows while held */
-        if (held[BTN_START] || page != PAGE_PLAY) {
-            start_used |= held[BTN_START];
-            page = wrap(page + (b == BTN_R1 ? 1 : -1), PAGE_COUNT);
+    case BTN_R1: /* the previous / next page, everywhere */
+        start_used |= held[BTN_START];
+        page = wrap(page + (b == BTN_R1 ? 1 : -1), PAGE_COUNT);
+        return;
+    case BTN_L2:
+    case BTN_R2:
+        /* on PLAY the shoulders below play the selected string: L2 plucks,
+         * R2 bows while held; held, they still edit with the other buttons */
+        if (page != PAGE_PLAY || repeats)
+            return;
+        if (held[BTN_START]) { /* START + L2: the mallet; START + R2: the quiet view */
+            start_used = 1;
+            if (b == BTN_L2)
+                pluck_s = cur_s, fire_pluck(1);
+            else
+                quiet = !quiet;
+            return;
         }
-        else if (latch_on()) { /* LATCH: L1 plucks (a tap strikes), R1 bows; again, it lets go */
-            if (repeats)
-                return;
-            if (held[b == BTN_L1 ? BTN_R1 : BTN_L1]) { /* both shoulders, either order: harmonic / overblow */
+        if (latch_on()) { /* LATCH: L2 plucks, R2 bows; again, it lets go */
+            if (held[b == BTN_L2 ? BTN_R2 : BTN_L2]) { /* both shoulders, either order: harmonic / overblow */
                 if (harm_s >= 0 && harm_s != cur_s)
                     engine_overblow(harm_s, 0);
                 harm_s = cur_s, harm_both = 1;
                 engine_overblow(cur_s, 1);
                 return;
             }
-            if (b == BTN_R1)
+            if (b == BTN_R2) {
+                r2_undo_s = cur_s, r2_undo_was = live.latch[cur_s];
                 do_latch(cur_s, LATCH_BOW);
-            else /* L1: plucks it on at once (on a droning string, lets go) */
-                l1_s = cur_s, fire_l1(0);
+            }
+            else /* L2: plucks it on at once (on a droning string, lets go) */
+                pluck_s = cur_s, fire_pluck(0);
         }
-        else if (b == BTN_L1) {
-            if (bowing >= 0) /* already bowing: L1 overblows / touches a harmonic */
+        else if (b == BTN_L2) {
+            if (bowing >= 0) /* already bowing: L2 overblows / touches a harmonic */
                 engine_overblow(bowing, 1);
-            else if (!repeats) /* a pluck, at once */
-                l1_s = cur_s, fire_l1(0);
+            else /* a pluck, at once */
+                pluck_s = cur_s, fire_pluck(0);
         }
         else {
             bowing = cur_s;
             bow_start_ms = now_ms;
             if (jdlog_level() == LOG_DETAIL)
                 jdlog("hand %s voice %d%s", engine_voice_wind(cur_s) ? "blow" : "bow", cur_s + 1,
-                      held[BTN_L1] ? (engine_voice_wind(cur_s) ? ", overblown" : ", harmonic") : "");
+                      held[BTN_L2] ? (engine_voice_wind(cur_s) ? ", overblown" : ", harmonic") : "");
             engine_bow(cur_s, 1);
-            /* R1 added while L1 is held: overblow (wind) or a harmonic (strings) */
-            engine_overblow(cur_s, held[BTN_L1]);
+            /* R2 added while L2 is held: overblow (wind) or a harmonic (strings) */
+            engine_overblow(cur_s, held[BTN_L2]);
         }
         return;
     case BTN_START: return; /* acts on release, unless used for a page change */
@@ -764,8 +783,6 @@ static void action(int b, int repeats)
             say("%s  %s", engine_scale_name(song.gp[GP_SCALE]), engine_chord_name());
         return;
     case BTN_MENU: quit = 1; return;
-    case BTN_L2:
-    case BTN_R2: return;
     case BTN_A:
         if (held[BTN_START]) { /* START + A: PLAY MODE RINGS or LATCH */
             start_used = 1;
@@ -844,21 +861,9 @@ void ui_button(int b, int down)
         l2_used = 0;
     if (b == BTN_R2 && down)
         r2_used = 0;
-    /* L2 on PLAY: the dulcimer mallet, dropped on the selected string at once
-     * (held, L2 still edits the rings with the d-pad); START + L2 toggles the
-     * quiet view */
-    if (b == BTN_L2 && down && page == PAGE_PLAY) {
-        if (held[BTN_START]) {
-            start_used = 1;
-            quiet = !quiet;
-            return;
-        }
-        l1_s = cur_s;
-        ui_lock();
-        fire_l1(1);
-        ui_unlock();
-    }
-    if (!down && harm_s >= 0 && (b == BTN_B ? !harm_both : harm_both && (b == BTN_L1 || b == BTN_R1))) {
+    if (b == BTN_R2)
+        r2_undo_s = -1;
+    if (!down && harm_s >= 0 && (b == BTN_B ? !harm_both : harm_both && (b == BTN_L2 || b == BTN_R2))) {
         /* LATCH: letting go of B (or of either shoulder) ends the harmonic */
         harm_both = 0;
         ui_lock();
@@ -867,23 +872,23 @@ void ui_button(int b, int down)
         harm_s = -1;
         return;
     }
-    if (b == BTN_R1 && !down && bowing >= 0) {
-        bow_release_ms = REPEAT_GAP_MS; /* stops in ui_tick unless R1 comes back */
+    if (b == BTN_R2 && !down && bowing >= 0) {
+        bow_release_ms = REPEAT_GAP_MS; /* stops in ui_tick unless R2 comes back */
         return;
     }
-    if (b == BTN_R1 && down && bowing >= 0) {
+    if (b == BTN_R2 && down && bowing >= 0) {
         bow_release_ms = 0; /* still bowing the same string */
         return;
     }
-    if (b == BTN_L1 && page == PAGE_PLAY && !held[BTN_START]) {
-        if (!down && bowing >= 0) { /* letting go of L1: back to the plain bow */
+    if (b == BTN_L2 && page == PAGE_PLAY && !held[BTN_START]) {
+        if (!down && bowing >= 0) { /* letting go of L2: back to the plain bow */
             ui_lock();
             engine_overblow(bowing, 0);
             ui_unlock();
         }
         if (!down)
-            l1_up_ms = now_ms;
-        else if (now_ms - l1_up_ms < REPEAT_GAP_MS)
+            l2_up_ms = now_ms;
+        else if (now_ms - l2_up_ms < REPEAT_GAP_MS)
             return; /* a glitch, not a new pluck */
     }
     if (b == BTN_START) {
@@ -924,7 +929,7 @@ void ui_tick(int ms)
         chords_seen++;
         jdlog("chord %s (%s)", engine_chord_name(), engine_scale_name(song.gp[GP_SCALE]));
     }
-    if (bow_release_ms > 0 && (bow_release_ms -= ms) <= 0 && bowing >= 0 && !held[BTN_R1]) {
+    if (bow_release_ms > 0 && (bow_release_ms -= ms) <= 0 && bowing >= 0 && !held[BTN_R2]) {
         hand_bow_ms += now_ms - bow_start_ms;
         if (jdlog_level() == LOG_DETAIL)
             jdlog("hand release voice %d after %.1f s", bowing + 1, (now_ms - bow_start_ms) / 1000.0);
@@ -1165,7 +1170,7 @@ static void draw_header(void)
 static void draw_footer(void)
 {
     static const char *const hints[PAGE_COUNT] = {
-        "A:ON/OFF B:FEWER X:ROTATE Y:NEW L1:PLUCK R1:BOW L2:EDIT R2:SOUND",
+        "A:ON/OFF B:FEWER Y:NEW L2:PLUCK R2:BOW L2+R2:HARM L1/R1:PAGE",
         "D-PAD:MOVE Y:- X:+ A:MUTE B:PLUCK L1/R1:PAGE SEL:CHORD",
         "D-PAD:MOVE Y:- X:+ B:PLUCK L1/R1:PAGE SEL:NEXT CHORD",
         "D-PAD:MOVE Y:- X:+ A:MUTE B:PLUCK L1/R1:PAGE SEL:CHORD",
@@ -1184,15 +1189,15 @@ static void draw_footer(void)
         h = cw_ ? "D-PAD:MOVE Y:- X:+ A:MUTE B:TONGUE R2+Y/X:FAMILY SEL:CHORD"
                 : "D-PAD:MOVE Y:- X:+ A:MUTE B:PLUCK R2+Y/X:FAMILY SEL:CHORD";
     if (page == PAGE_PLAY && latch_on())
-        h = cw_   ? "L1:TONGUE L2:FLUTTER R1:BLOW B:OVERBLOW Y/X:ATK ^v:REL"
-            : cp_ ? "L1:STRIKE L2:DROP R1:BOW B:HARMONIC Y/X:ATK ^v:REL A:ALL GO"
-                  : "L1:PLUCK L2:DROP R1:BOW B:HARMONIC Y/X:ATK ^v:REL A:ALL GO";
+        h = cw_   ? "L2:TONGUE R2:BLOW B:OVERBLOW Y/X:ATK ^v:REL L1/R1:PAGE"
+            : cp_ ? "L2:STRIKE R2:BOW B:HARMONIC Y/X:ATK ^v:REL A:ALL GO L1/R1:PAGE"
+                  : "L2:PLUCK R2:BOW B:HARMONIC Y/X:ATK ^v:REL A:ALL GO L1/R1:PAGE";
     else if (page == PAGE_PLAY && cp_)
-        h = "A:ON/OFF B:FEWER Y:NEW L1:STRIKE L2:DROP R1:BOW L1+R1:HARM";
+        h = "A:ON/OFF B:FEWER Y:NEW L2:STRIKE R2:BOW L2+R2:HARM L1/R1:PAGE";
     else if (page == PAGE_PLAY && cw_)
-        h = "A:ON/OFF B:FEWER Y:NEW L1:TONGUE L2:FLUTTER R1:BLOW L1+R1:OVER";
+        h = "A:ON/OFF B:FEWER Y:NEW L2:TONGUE R2:BLOW L2+R2:OVER L1/R1:PAGE";
     else if (page == PAGE_PLAY)
-        h = "A:ON/OFF B:FEWER Y:NEW L1:PLUCK L2:DROP R1:BOW L1+R1:HARM";
+        h = "A:ON/OFF B:FEWER Y:NEW L2:PLUCK R2:BOW L2+R2:HARM L1/R1:PAGE";
     if (page == PAGE_PLAY && held[BTN_L2])
         h = "L2+ ^v:STEPS <>:RATE X:MORE PULSES Y:ROTATE BACK A:MUTE";
     else if (page == PAGE_PLAY && held[BTN_R2])
@@ -1627,7 +1632,7 @@ static void draw_latch(int s, int x, int y, int w, int h, uint32_t col, int sel,
                        : st == LATCH_PLUCK ? (wnd ? "TONGUED" : prc ? "STRUCK" : "PLUCKED")
                        : st == LATCH_BOW ? (wnd ? "BLOWN" : "BOWED")
                        : lv > 0.02f      ? "FADING"
-                                         : (wnd ? "L1 / R1" : "L1 / R1");
+                                         : "L2 / R2";
     gfx_text(x + w / 2 - gfx_text_w(word, FONT_SMALL) / 2, (int)(yb - h * 0.45f), word, st ? C_TEXT : C_DIM, FONT_SMALL);
     char rel[16], atk[16], lb[24];
     sparam_format(s, SP_RELEASE, rel, sizeof rel);

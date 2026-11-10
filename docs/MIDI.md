@@ -10,8 +10,8 @@ from any page.
 |---|---|---|---|
 | Basic channel | none | 1-16 (any) | Every message is heard on any channel. With `JD_MIDI_NOTES=CHANNELS`, notes on channels 1-5 play strings 1-5. |
 | Mode | none | Omni on, poly | |
-| Note number | none | 0-127 | A key takes a voice and tunes it to the key (out of reach: the nearest octave). |
-| Velocity: note on | none | yes | How hard the string is plucked, and the bow's swell. |
+| Note number | none | 0-127 | Four notes at once, each sounding the voice selected on PLAY at the key's pitch, on voices of their own; a fifth key takes the voice of the one held longest. With `JD_MIDI_NOTES=CHANNELS`, a key tunes its string to itself (out of reach: the nearest octave). |
+| Velocity: note on | none | yes | How hard the note is plucked, and the bow's swell. |
 | Velocity: note off | none | no | |
 | Aftertouch: key | none | no | |
 | Aftertouch: channel | none | yes | How hard the held strings are bowed. |

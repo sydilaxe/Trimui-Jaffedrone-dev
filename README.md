@@ -126,10 +126,10 @@ struck); Y / X alone step one at a time.
 
 - **The mallet** is a mass on a spring that meets the surface where it strikes, pushes while compressed and
   leaves on its own: a hard mallet makes a short, bright contact, a soft one a long, dark push, and it can
-  bounce back for a second touch. L2 drops a hard mallet that bounces, each rebound lower and sooner.
+  bounce back for a second touch. START + L2 drops a hard mallet that bounces, each rebound lower and sooner.
 - **The bow** is stick-slip friction at a point: the surface catches on the bow and slips, and the modes it
   meets grow until they sing, as a rubbed singing bowl or a bowed cymbal does.
-- **The touch** (L1 + R1, or B in LATCH): a finger damps the fundamental; the next mode rings and the bow
+- **The touch** (L2 + R2, or B in LATCH): a finger damps the fundamental; the next mode rings and the bow
   sings it.
 
 | Voice | | Modes, over the fundamental |
@@ -219,17 +219,18 @@ strings shimmer against each other.
 PLAY MODE (START + A, or on the SONG page) switches between **RINGS**, where the Euclidean rings play the
 strings, and **LATCH**, where the rings rest and you play:
 
-- Every string starts silent. On PLAY, pick a string with left and right, then **L1** plucks it or **R1**
+- Every string starts silent. On PLAY, pick a string with left and right, then **L2** plucks it or **R2**
   bows it (a wind voice: tongue or blow). Either way it keeps droning, sustained by the bow or breath, with
   no need to hold the button.
-- Press **L1 or R1 again** on that string and it lets go, fading over its own **RELEASE**: 0.05 s for a
+- Press **L2 or R2 again** on that string and it lets go, fading over its own **RELEASE**: 0.05 s for a
   clipped stop up to 20 s for a long dying ring. Up and down set the selected string's RELEASE (it is also
   on the MIX page, in place of GATE).
 - A pluck starts at once; a bow swells in over the string's **ATTACK** (0.05 to 10 s, 1.8 s at first): **Y /
   X** make the selected string's ATTACK shorter / longer. **A** lets every string go.
-- Hold **B**, or **L1 and R1** together (either first), and the selected droning string sounds its next
-  harmonic up (a wind voice overblows); let go and it comes back. **L2** drops the mallet on it instead
-  of plucking.
+- Hold **B**, or **L2 and R2** together (either first), and the selected droning string sounds its next
+  harmonic up (a wind voice overblows); let go and it comes back. **START + L2** drops the mallet on it
+  instead of plucking. R2 held for a quick sound change (R2 + a d-pad direction, X, Y, A or B) puts the
+  string back as it was before R2 was pressed.
 - Each column shows a board with a shed-roof top that fills while its string drones and drains as it fades,
   with the word PLUCKED, BOWED or FADING.
 
@@ -320,7 +321,7 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
 - **PLAY:** the five strings, each with its pluck ring and bow ring drawn as polygons. The steps are the
   corners, and the pulses are joined into an inner shape that lights on each pluck and fills as the bow swells.
   The band at the top shows the scale, the current chord and the bars until the next change.
-- **The quiet view** (START + L2 on PLAY): only the five strings and their rings, for meditation.
+- **The quiet view** (START + R2 on PLAY): only the five strings and their rings, for meditation.
 - **SOUND:** tone and sound shaping. The engine, exciter and material at the top, then each string's note,
   harmonic touch, bow, decay, brightness, fold,
   stiffness, pick position and buzz, then coupling, body, tone and the sympathetic strings.
@@ -426,16 +427,16 @@ on the shoulder buttons.
 | B | fewer pulses, wrapping back to all |
 | X | rotate the pattern |
 | Y | a new simple pattern |
-| L1 | pluck the selected string by hand, the moment it is pressed (WIND: tongue a note) |
-| L2 | drop a dulcimer mallet on it: a bright hit, then rebounds, each lower and sooner, until it rests (WIND: a flutter tongue; STRUCK: a hard mallet, bouncing). Held, L2 still shapes the ring |
-| R1 (hold) | bow the selected string by hand: the bow is drawn slowly, swelling over about two seconds and brightening as it bites, then sings steadily while R1 is held (WIND: blow) |
-| L1 + R1, either first | bow with a harmonic touch: the next harmonic up sings (WIND: overblow, an octave up, a twelfth for REED); bowing with R1, add L1 for overblows as you bow |
+| L2 | pluck the selected string by hand, the moment it is pressed (WIND: tongue a note). Held, L2 still shapes the ring |
+| START + L2 | drop a dulcimer mallet on it: a bright hit, then rebounds, each lower and sooner, until it rests (WIND: a flutter tongue; STRUCK: a hard mallet, bouncing) |
+| R2 (hold) | bow the selected string by hand: the bow is drawn slowly, swelling over about two seconds and brightening as it bites, then sings steadily while R2 is held (WIND: blow). Held, R2 still makes the quick sound changes, bowing as it does |
+| L2 + R2, either first | bow with a harmonic touch: the next harmonic up sings (WIND: overblow, an octave up, a twelfth for REED); bowing with R2, add L2 for overblows as you bow |
 | L2 + up / down | more / fewer steps |
 | L2 + left / right | step length (right = faster) |
 | L2 + X | more pulses |
 | L2 + Y | rotate back |
 | L2 + A | mute / unmute the string (it fades out and in; a red bar marks it) |
-| START + L2 | the quiet view |
+| START + R2 | the quiet view |
 | R2 + left / right | previous / next scale |
 | R2 + up / down | tone (cutoff) |
 | R2 + X / Y | the selected ring's chance more / less (10% steps) |
@@ -447,7 +448,7 @@ on the shoulder buttons.
 |---|---|
 | SELECT | next chord |
 | START (tap) | start / stop the drone |
-| START + L1 / R1 | previous / next page (on SOUND, COMPOSE and MIX, L1 / R1 alone also work) |
+| L1 / R1 | previous / next page |
 | START + A | PLAY MODE: RINGS or LATCH (see Latch) |
 | MENU | exit |
 
@@ -469,17 +470,17 @@ are found as they are plugged in, and a message names each one.
 
 **MIDI in** (any channel; `src/midi.h` has the details):
 
-- **Notes:** each key takes a voice and tunes it to the key played. The tuning is a bend on top of the song,
-  so the song is never changed.
-  - **Which voice:** the first key plays the voice selected on PLAY. Each key added while others are held
-    takes the next free voice round from the last one taken, so a chord builds across the voices and a run
-    of overlapping keys rotates through them. With all five held, the key held longest gives up its voice.
-    Muted voices and voices that only listen (AURA) are passed over, so muting voices narrows what the
-    keyboard plays.
+- **Notes:** the keyboard plays the voice selected on PLAY, four notes at once.
+  - **Which voice:** every key sounds the selected string's voice (its instrument and its SOUND settings,
+    level and pan) at the key's own pitch, on one of four key voices of their own beside the five strings,
+    so the drone and the song are never changed, and a muted string still plays from the keys. With four
+    keys held, a fifth takes the voice of the key held longest. Pick another string on PLAY and the next
+    keys play its sound.
   - **How it plays:** the key plucks as hard as it is struck and bows while held (a wind voice is tongued
-    and blown). In LATCH a key starts its voice droning (a soft key swells in with the bow, a firm one
-    plucks), and letting go fades it over its RELEASE.
-  - With `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play voices 1-5 instead.
+    and blown). In LATCH a key drones (a soft key swells in with the bow, a firm one plucks) until it is
+    let go, then fades over the voice's RELEASE.
+  - With `JD_MIDI_NOTES=CHANNELS`, channels 1-5 play strings 1-5 themselves instead (each key tuning its
+    string as a bend on top of the song, one note a string).
 - **Pitch bend:** two semitones. **Mod wheel** and **pressure:** how hard the held strings are bowed.
   **CC64:** sustain. **CC74:** TONE. **CC91:** reverb. **CC120 / CC123:** everything let go.
 - **Settings by CC:** the important voice, engine and play settings each have a CC, on any channel: CC 2
@@ -525,7 +526,7 @@ PLAY and spring back when let go; nothing they do is saved.
 
 | Stick | Does |
 |---|---|
-| left, up | bow the string by hand, from a light touch to the engine's hardest, half again as hard as R1 (a wind voice: blow) |
+| left, up | bow the string by hand, from a light touch to the engine's hardest, half again as hard as R2 (a wind voice: blow) |
 | left, left / right | bend the string, two semitones either way (`JD_BEND=7` for seven) |
 | right, up / down | HARM: up touches higher harmonics, to the 5th; down, lower, to none (a wind voice: its register; struck: the mode the bow sings) |
 | right, left / right | the SOUND control mapped to the stick (BRIGHT at first): right up to its most, left down to its least |

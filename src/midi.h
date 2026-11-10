@@ -4,20 +4,19 @@
  * is needed on the device. Ports are found as they are plugged in.
  *
  * In (any channel):
- *   notes          NOTES=POLY (default): a key takes a voice and tunes it
- *                  to the key played, as a bend
- *                  on top of the song (the song itself is never changed);
- *                  it plucks as hard as the key is struck and bows while
- *                  held (a wind: tongues and blows; LATCH: drones until the
- *                  key is let go, a soft key swelling in with the bow).
- *                  The first key plays the voice selected on PLAY; each
- *                  key added while others are held takes the next free
- *                  voice round from the last one taken (a chord builds
- *                  across the voices, a run of keys rotates through them);
- *                  with every voice held, the key held longest gives its
- *                  voice up. Muted and listening (AURA) voices are skipped.
- *                  NOTES=CHANNELS: channels 1-5 play strings 1-5 the same
- *                  way, other channels the selected string.
+ *   notes          NOTES=POLY (default): the keyboard plays the voice
+ *                  selected on PLAY, NKEY (four) notes at once: each key
+ *                  sounds that string's voice at the key's pitch on a key
+ *                  voice of its own (engine_key_voice), beside the strings,
+ *                  so the drone and the song are untouched. It plucks as
+ *                  hard as the key is struck and bows while held (a wind:
+ *                  tongues and blows; LATCH: drones until the key is let
+ *                  go, a soft key swelling in with the bow). A key goes to
+ *                  a silent key voice, else the one let go longest ago;
+ *                  with four held, the key held longest gives its voice up.
+ *                  NOTES=CHANNELS: channels 1-5 play strings 1-5, other
+ *                  channels the selected string, each key tuning its
+ *                  string to itself as a bend on top of the song.
  *   pitch bend     two semitones
  *   CC1, pressure  how hard the held strings are bowed
  *   CC64           sustain
