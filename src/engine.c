@@ -364,14 +364,15 @@ static const char *const glide_names[8] = {"OFF", "1/32", "1/16", "1/8", "1/4", 
  * Notes are JUST MAJOR degrees: root, fifth, octave, twelfth, two octaves.
  * Each string has its own sparse pluck rhythm; the top string's bow ring
  * breathes in and out, the other bows play continuously. */
-/* the default rings play against each other: 3 in 8 on eighths, 2 in 3 on
- * eighth triplets, 5 in 12 on sixteenths, 3 in 5 on quintuple 5/16ths and
- * 4 in 7 on sixteenth triplets, with the bow swelling 3 in 5 on string 5 */
-static const int def_sp[NS][NSP] = {{0, 0, 80, 30, 85, 45, 0, 0, 0, 0, 1, 8, 3, 0, 0, 4, 2, 0, 1, 0, 100, 100, 0, 0, 0, 55, 68, 0, 55},
-                                    {4, -4, 65, 40, 88, 40, 0, 0, 0, 0, 1, 3, 2, 0, 0, 5, 3, 0, 8, -22, 100, 100, 0, 0, 0, 55, 68, 0, 50},
-                                    {7, 3, 55, 35, 85, 55, 0, 0, 0, 0, 1, 12, 5, 1, 0, 3, 2, 0, 0, 22, 100, 100, 0, 0, 0, 55, 68, 0, 45},
-                                    {11, 0, 40, 45, 88, 65, 0, 0, 0, 0, 1, 5, 3, 0, 0, 7, 3, 0, 11, -12, 100, 100, 0, 0, 0, 55, 68, 0, 50},
-                                    {14, 2, 30, 50, 90, 70, 0, 0, 0, 0, 1, 7, 4, 2, 1, 5, 3, 0, 7, 12, 85, 100, 0, 0, 0, 55, 68, 0, 40}};
+/* the default rings: a steady pulse and two rhythms across it, gently. String
+ * 1 plucks every half note, 2 plucks 3 in 8 on eighths, 3 plucks 2 in 3 on
+ * quarter triplets (three against two, slowly), 4 only drones and 5 plucks
+ * 2 in 5 on 5/16ths, now and then */
+static const int def_sp[NS][NSP] = {{0, 0, 80, 30, 85, 45, 0, 0, 0, 0, 1, 2, 1, 0, 0, 4, 2, 0, 2, 0, 100, 100, 0, 0, 0, 55, 68, 0, 35},
+                                    {4, -4, 65, 40, 90, 40, 0, 0, 0, 0, 1, 8, 3, 0, 0, 5, 3, 0, 1, -22, 100, 100, 0, 0, 0, 55, 68, 0, 30},
+                                    {7, 3, 55, 35, 90, 55, 0, 0, 0, 0, 1, 3, 2, 0, 0, 3, 2, 0, 9, 22, 100, 100, 0, 0, 0, 55, 68, 0, 30},
+                                    {11, 0, 40, 50, 90, 65, 0, 0, 0, 0, 0, 5, 3, 0, 0, 7, 3, 0, 2, -12, 100, 100, 0, 0, 0, 55, 68, 0, 0},
+                                    {14, 2, 30, 50, 93, 70, 0, 0, 0, 0, 1, 5, 2, 0, 0, 5, 3, 0, 11, 12, 75, 100, 0, 0, 0, 55, 68, 0, 25}};
 static const int def_gp[NGP] = {MODE_CHORD, 1, 45, 4, 72, 30, 3, 70, 80, SYNC_OFF, 50, 50, 45, 30, 75, 1,
                                 ENG_STRINGS, EX_FLUTE, MAT_WOOD, 0, SUB_OCT, 60, 20, 45, 0, MODAL_AUTO, PROG_FREE, PLAY_RINGS,
                                 OUT_STEREO, 0, 1, 5, MIDI_AUTO, 0};

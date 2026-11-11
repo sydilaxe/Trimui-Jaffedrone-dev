@@ -1077,8 +1077,15 @@ int main(int argc, char **argv)
         for (int lag = start; lag < 160; lag++)
             if (cc[lag] > bestc)
                 bestc = cc[lag], best = lag;
-        double swell_hz = best ? RATE / 240.0 / best : 0;
-        printf("ombak 4 Hz: L/R flips %d (want 0), swells %.1f per s (want about 4)\n", flips, swell_hz);
+        double lagf = best; /* between the lags: the peak of a parabola through the three around it */
+        if (best > 1 && best < 159) {
+            double den = cc[best - 1] - 2 * cc[best] + cc[best + 1];
+            if (den < 0)
+                lagf += 0.5 * (cc[best - 1] - cc[best + 1]) / den;
+        }
+        double swell_hz = best ? RATE / 240.0 / lagf : 0;
+        printf("ombak 4 Hz: L/R flips %d (want 0), swells %.1f per s (want about 4: %d)\n", flips, swell_hz,
+               fabs(swell_hz - 4.0) < 0.25);
     }
     /* the Balinese gong kebyar profiles: each degree where Toth put it */
     {

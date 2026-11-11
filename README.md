@@ -244,8 +244,9 @@ LATCH and the RELEASE times are saved with songs and presets.
 Each string has two Euclidean rings (steps, pulses, rotation) that share one step length (RATE), straight,
 triplet, dotted or quintuple, as on RadioScan: 1/32, 1/16T, 1/16, 1/8T, 1/8, 1/4T, 1/8., 1/4, 5/16, 1/4., 1/2,
 5/8, 1 bar and 2 bars. Each string keeps its own time, so five strings play real polyrhythms: eighths against
-eighth triplets, sixteenths against quintuple 5/16ths. The default song plays 3 in 8 on eighths, 2 in 3 on
-eighth triplets, 5 in 12 on sixteenths, 3 in 5 on 5/16ths and 4 in 7 on sixteenth triplets.
+eighth triplets, sixteenths against quintuple 5/16ths. The default song keeps it gentle: string 1 plucks every half note, string 2 3 in 8
+on eighths, string 3 2 in 3 on quarter triplets (three against two, slowly), string 4 only drones and string 5
+plucks 2 in 5 on 5/16ths, now and then.
 
 - **The pluck ring** plucks the string on its pulses. The first pulse of each cycle is a little stronger.
 - **The bow ring** swells the bow in and out on its pulses, so the string breathes. With the bow ring off, the
