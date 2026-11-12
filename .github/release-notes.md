@@ -1,10 +1,29 @@
-Jaffedrone test build for the TrimUI Brick, Brick Hammer and Brick Pro running MustardOS.
-
-**MustardOS only:** Jaffedrone is now built only for MustardOS; the TrimUI OS zips are no longer released.
+Jaffedrone for the TrimUI Brick, Brick Hammer and Brick Pro running MustardOS.
 
 **Install on MustardOS:** copy `Jaffedrone-mustardos-brick.muxapp` (Brick, Brick Hammer) or
 `Jaffedrone-mustardos-brickpro.muxapp` (Brick Pro) into the `ARCHIVE` folder of the first SD card, install it
 from **Applications → Archive Manager**, then open **Applications → Jaffedrone**.
+
+**New: updates itself**
+- A few seconds after it starts, Jaffedrone asks GitHub for the latest release and, when it's newer, offers
+  it: **A** downloads this device's package, puts it in place and restarts; **B** asks again next time. Your
+  song, presets, MIDI map, settings and logs are kept, and a failed update changes nothing. `JD_UPDATE=0` in
+  `launch.sh` turns the check off. Copies from before this release don't have the updater: install this one
+  by hand once.
+
+**Fixed: the sound stopping a while after the last press**
+- Two minutes without a press, MustardOS's idle (with its Idle Mute on, the default) muted the sound, dimmed
+  the screen and slowed the processor. While Jaffedrone is open it now asks MustardOS not to idle or sleep,
+  and gives that back when it closes. An empty `no_keep_awake` file in the app folder leaves MustardOS's idle
+  as it is.
+- The log notes when MustardOS goes idle anyway, and when the headphone jack goes in or out.
+
+**New: MIDI page, four-voice keys, polyrhythms**
+- L1 / R1 move between the pages. A MIDI page sets each voice's channel, how keys play (pluck, bow, strike;
+  held, gated or latched), velocity, aftertouch, mod wheel and pitch bend, with MIDI learn (START + B). Keys
+  play the selected voice four notes deep.
+- Ring rates now include triplets, dotted and quintuple values, and ACCENT makes each ring hit stand out of
+  the drone. Only START (or a MIDI or Wi-Fi START) starts the drone.
 
 **New in 0.7.0: link Bricks over USB**
 - Several Bricks play in time by cable, with no MIDI interface: the leader has a powered USB hub in its top

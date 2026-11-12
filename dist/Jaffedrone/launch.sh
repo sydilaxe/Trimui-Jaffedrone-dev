@@ -39,10 +39,15 @@ export LD_LIBRARY_PATH="/usr/lib:$LD_LIBRARY_PATH"
 #   JD_ROTATE=180      turn the picture, for a firmware whose screen is turned
 #   JD_SCREEN_REBUILD=0  don't make the renderer again after the MustardOS screen wake
 #   JD_JOYMAP=A=1,B=0  another firmware's button numbers (also L2, R2, L3, R3)
+#   JD_UPDATE=0        don't check GitHub for a new version (an update replaces this file: set it again after)
 #   JD_LOG=2           log.txt's performance lines every second (1: every 10 s, the default; 0: off)
 # The log, jaffedrone_log.txt, is set from the app: START + SELECT cycles OFF, BASIC and DETAIL;
 # DETAIL adds a status line every second and every button press as the controller sends it.
-./jaffedrone > log.txt 2>&1
+# exit status 75: the app has just updated itself, so start the new version
+while :; do
+    ./jaffedrone > log.txt 2>&1
+    [ $? -eq 75 ] || break
+done
 
 ./sysinfo.sh stop jaffedrone
 [ -n "$gov_was" ] && echo "$gov_was" > $CPU/cpu0/cpufreq/scaling_governor 2>/dev/null

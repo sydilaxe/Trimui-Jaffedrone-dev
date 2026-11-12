@@ -36,6 +36,30 @@ first page after the start-up screen, window events, rebuilds and any drawing er
 With a card mounted, `make install SD=/path/to/card` does the same from a build (add `DEVICE=brickpro` for
 the Brick Pro).
 
+### Updates
+
+Jaffedrone updates itself, as Columbia Street does. A few seconds after it starts (once Wi-Fi is up) it asks
+GitHub for this repo's latest release, and tries again every minute, five times in all, if it can't reach it.
+When the release is newer than the app, a prompt covers the page: **A** downloads the release's package for
+this device (the Brick's or the Brick Pro's), puts the new files in place and restarts Jaffedrone; **B** (or
+MENU) closes it, and it is offered again next time. The sound keeps going under the prompt. Your song
+(`jaffedrone.sav`), presets (`*.jds`), MIDI map and settings (`*.cfg`) and the logs are never touched; files
+that haven't changed aren't written; and every new file is written and checked beside the old one before any
+is replaced, so a failed or broken download changes nothing. The log says what was found
+(`update: the latest release is v…`). `JD_UPDATE=0` in `launch.sh` turns the check off (an update replaces
+`launch.sh`, so set it again after). A copy from before 0.7.0 has no updater: install 0.7.0 or later once by
+hand.
+
+### MustardOS's idle
+
+Two minutes without a press, MustardOS dims the screen, drops the processor to its slowest and, with
+**Idle Mute** on (its default), mutes the sound; later it can put the device to sleep. A drone is played with
+the hands off, so the sound would stop a while after the last press and come back with the next. While
+Jaffedrone is open, `mux_launch.sh` asks MustardOS not to: it sets MustardOS's `idle_inhibit` (again every
+2 s, as MustardOS's idle watcher clears it when the buttons go quiet) and its `caffeine` flag, and gives both
+back when Jaffedrone closes. An empty file named `no_keep_awake` in the app folder leaves MustardOS's idle as
+it is. The log notes when MustardOS goes idle anyway, and when the headphone jack goes in or out.
+
 ## The strings
 
 Each string is a Karplus-Strong loop with the Jaffe-Smith extensions:
@@ -707,19 +731,33 @@ The audio thread only fills counters; all writing happens in the main thread.
   app folder in `Jaffedrone/`, plus `dist/mustardos/` (`mux_launch.sh`, `wake_screen.sh`, the list glyph).
   At run time the app reads MustardOS's "muOS-Keys" controller (numbered as in MustardOS's
   `device/tui-brick*` controller maps).
+- `make update-test` installs a fake v9.9.9 over a test app folder, the way the app updates itself.
+  `build/jd_update APP_DIR [--force]` (from `src/main_update.c`) checks for a newer release and installs it
+  into `APP_DIR`, as the app does on **A**; point `JD_UPDATE_API` at `tools/fake_github.py`
+  (`http://127.0.0.1:8766/latest.json`) to try an update without the internet.
+- The updater (`src/update.c`, `src/net.c`, from Columbia Street and RadioScan) reaches GitHub over HTTPS
+  with [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) 3.6.7, which `make` downloads (pinned by its SHA-256)
+  into `third_party/mbedtls/` (not committed), builds with `tools/mbedtls.mk` and links in statically. Mbed
+  TLS is under Apache-2.0 (or GPL-2.0-or-later); the app folder carries its licence as
+  `LICENSE-mbedtls.txt`. `dist/Jaffedrone/cacert.pem` is curl's extract of Mozilla's CA certificates
+  (MPL-2.0), which the updater checks GitHub's certificate against.
 
 ### GitHub builds and releases
 
 Every push runs the **build** workflow:
 
 - It builds the MustardOS `.muxapp`s with zig. They are kept as the run's `Jaffedrone-mustardos` artifact.
+- It runs `make update-test`: the self-update end to end against `tools/fake_github.py`, a local stand-in
+  for GitHub (a damaged download must change nothing; the song, presets and MIDI map must stay).
 - It runs the test harness, checking that there is no clipping, every wind exciter is in tune, the chord
   memory, key lock and presets work, and Wi-Fi sync locks. The output and screenshots are kept as
   `test-output`.
 
 To publish a release with the two packages attached, go to **Actions → build → Run workflow** and fill in a tag such as
 `v0.11.0`. Pushing a `v*` tag, or creating a release on the website, does the same. The release text comes from
-`.github/release-notes.md`. The tag sets the version: CI builds the app and the manual with it
+`.github/release-notes.md`. Releases are full releases marked Latest, not pre-releases: the app updates
+from GitHub's latest release, which leaves pre-releases out. Tag them `v<number>.<number>...`, higher each
+time. The tag sets the version: CI builds the app and the manual with it
 (`make package JD_VERSION=0.11.0`, `make manual JD_VERSION=0.11.0`), so the info screen, the log and the
 manual in the packages show the tag's version, with nothing to change in the source first. A local build
 without `JD_VERSION` shows the one in `src/engine.h`.

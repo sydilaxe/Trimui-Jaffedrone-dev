@@ -20,7 +20,7 @@ import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 # what the manual shows: change any of these and the manual must be rebuilt
-INPUTS = ["src/ui.c", "src/engine.h", "src/midi.h", "src/logo_data.h", "tools/mkmanual.py", "dist/Jaffedrone/splash.jdi"]
+INPUTS = ["src/ui.c", "src/engine.h", "src/midi.h", "src/update.h", "src/logo_data.h", "tools/mkmanual.py", "dist/Jaffedrone/splash.jdi"]
 
 
 def fingerprint():
@@ -351,6 +351,13 @@ def build(out):
                          "the sticks) into the <b>ARCHIVE</b> folder of the first SD card, install it from "
                          "<b>Applications → Archive Manager</b> and open <b>Applications → Jaffedrone</b>. The "
                          "start-up screen shows for a moment; any button moves on.", P),
+               Paragraph("Updates", H2),
+               Paragraph("Jaffedrone updates itself. A few seconds after it starts it looks for a newer release "
+                         "(over Wi-Fi) and, if there is one, asks: " + B("A") + " downloads it and restarts, "
+                         + B("B") + " asks again next time. The sound goes on meanwhile. Your song, presets, MIDI "
+                         "map and settings are kept, and a failed update changes nothing. While it is open, "
+                         "Jaffedrone also keeps MustardOS from dimming, muting or sleeping when the buttons go "
+                         "quiet, so a drone plays on untouched.", P),
                Paragraph("The first buttons", H2),
                table([(num(1), B("START"), "start or stop the drone (it fades in and out): its rings, chord "
                                          "changes and clock. Only START (or a MIDI or Wi-Fi START) starts it; "

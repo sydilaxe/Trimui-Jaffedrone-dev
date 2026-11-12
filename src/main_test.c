@@ -21,6 +21,7 @@
 #include "perflog.h"
 #include "sync.h"
 #include "ui.h"
+#include "update.h"
 
 #define RATE 48000
 
@@ -72,6 +73,14 @@ static void press(int b)
 {
     ui_button(b, 1);
     ui_button(b, 0);
+}
+
+/* the update prompt, as if v9.9.9 were out: A "installs" (halfway through) */
+static UpdateStatus fake_update;
+static void fake_install(void)
+{
+    fake_update.state = UP_INSTALLING;
+    fake_update.progress = 42;
 }
 
 /* R1: the next page */
@@ -3350,6 +3359,45 @@ int main(int argc, char **argv)
         engine_set_playing(1);
         engine_render(pcm, RATE * 12);
         write_wav(path, pcm, RATE * 12);
+    }
+    { /* the update prompt: it takes the buttons (the page, the drone and its strings stay as
+       * they are), A installs, B closes it; a string bowed before it opened is let go */
+        song_default();
+        engine_init(RATE);
+        ui_tick(5000); /* past the start-up screen */
+        while (ui_page() != PAGE_PLAY)
+            next_page();
+        ui_button(BTN_R2, 1); /* bowing the selected string when the prompt comes up */
+        snprintf(fake_update.latest, sizeof fake_update.latest, "9.9.9");
+        fake_update.state = UP_AVAILABLE;
+        ui_set_update(&fake_update, fake_install);
+        ui_tick(10);
+        ui_draw(fb);
+        int shown = ui_update_open() && (fb[120 * SCREEN_W + SCREEN_W / 2] & 0xffffff) == 0xb3875c; /* its copper edge */
+        shot(out, "update", fb);
+        int playing = live.playing, page = ui_page();
+        press(BTN_R1);
+        press(BTN_START);
+        press(BTN_X);
+        ui_button(BTN_R2, 0); /* letting go of R2 still stops the bow */
+        ui_tick(500);
+        int kept = live.playing == playing && ui_page() == page && ui_update_open();
+        int let_go = !engine_bowing(ui_selected_string());
+        press(BTN_A);
+        int started = fake_update.state == UP_INSTALLING;
+        shot(out, "update_install", fb);
+        fake_update.state = UP_FAILED;
+        snprintf(fake_update.err, sizeof fake_update.err, "update check: couldn't reach api.github.com");
+        shot(out, "update_failed", fb);
+        press(BTN_B);
+        ui_tick(10);
+        ui_draw(fb);
+        int closed = !ui_update_open() && (fb[120 * SCREEN_W + SCREEN_W / 2] & 0xffffff) != 0xb3875c;
+        press(BTN_R1);
+        int buttons_back = ui_page() != page;
+        printf("update prompt: shown %d, page and drone kept %d, the bow let go %d, A installs %d, B closes it %d, "
+               "buttons back %d\n", shown, kept, let_go, started, closed, buttons_back);
+        ui_set_update(NULL, NULL);
     }
     free(pcm);
     return 0;

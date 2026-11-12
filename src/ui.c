@@ -4,6 +4,7 @@
 #include "ui.h"
 #include "logo_data.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -15,6 +16,7 @@
 #include "log.h"
 #include "midi.h"
 #include "sync.h"
+#include "update.h"
 
 #define C_BG 0x14161b
 #define C_PANEL 0x1c1f27
@@ -163,6 +165,37 @@ void ui_summary(void (*out)(const char *line))
 }
 
 static int splash_ms; /* the start-up screen, until a button or this runs out */
+/* the self-update prompt (update.h): it covers the page once a newer release is found; the
+ * sound goes on underneath. upd_ate: a press the prompt took, so its release is ignored too */
+static const UpdateStatus *upd;
+static void (*upd_install)(void);
+static int upd_open, upd_asked, upd_ate[BTN_COUNT];
+
+void ui_set_update(const UpdateStatus *status, void (*install)(void))
+{
+    upd = status;
+    upd_install = install;
+    upd_open = upd_asked = 0;
+}
+
+int ui_update_open(void) { return upd_open; }
+
+/* the prompt's buttons: A updates (or tries again), B or MENU closes it */
+static void update_action(int b)
+{
+    int st = upd->state;
+    if (st == UP_INSTALLING || st == UP_INSTALLED)
+        return;
+    if (b == BTN_A && (st == UP_AVAILABLE || st == UP_FAILED)) {
+        jdlog("update: installing v%s", upd->latest);
+        upd_install();
+    }
+    else if (b == BTN_B || b == BTN_MENU) {
+        upd_open = 0;
+        if (st == UP_AVAILABLE)
+            say("V%s IS OFFERED AGAIN NEXT TIME", upd->latest);
+    }
+}
 void ui_init(void) { splash_ms = 2500; }
 int ui_selected_string(void) { return cur_s; }
 int ui_page(void) { return page; }
@@ -1236,6 +1269,15 @@ void ui_button(int b, int down)
     }
     held[b] = down;
     hold_ms[b] = rep_ms[b] = rep_n[b] = 0;
+    if (down && upd_open) { /* the prompt takes the press; letting go of what was held still counts */
+        upd_ate[b] = 1;
+        update_action(b);
+        return;
+    }
+    if (!down && upd_ate[b]) {
+        upd_ate[b] = 0;
+        return;
+    }
     if (b == BTN_L2 && down)
         l2_used = 0;
     if (b == BTN_R2 && down)
@@ -1328,12 +1370,16 @@ void ui_tick(int ms)
     }
     if (toast_ms > 0)
         toast_ms -= ms;
+    if (upd && upd->state == UP_AVAILABLE && !upd_asked && splash_ms <= 0) {
+        upd_asked = upd_open = 1;
+        jdlog("update: v%s is out, this is v%s", upd->latest, JD_VERSION);
+    }
     if (midi_dirty_ms >= 0 && (midi_dirty_ms += ms) > 1000) { /* the MIDI page's settings, a moment after a change */
         midi_dirty_ms = -1;
         midi_save();
     }
     for (int b = 0; b < BTN_COUNT; b++) {
-        if (!held[b] || !repeatable(b))
+        if (!held[b] || !repeatable(b) || upd_open || upd_ate[b])
             continue;
         hold_ms[b] += ms;
         if (hold_ms[b] < 300)
@@ -1588,6 +1634,51 @@ static void draw_footer(void)
     gfx_fill(0, FOOTER_Y, SCREEN_W, SCREEN_H - FOOTER_Y, C_PANEL);
     gfx_fill(0, FOOTER_Y, 4, SCREEN_H - FOOTER_Y, C_COPPER);
     gfx_text(12, FOOTER_Y + 2, h, C_DIM, FONT_SMALL);
+}
+
+static void text_c(int cx, int y, const char *t, uint32_t c, int font)
+{
+    gfx_text(cx - gfx_text_w(t, font) / 2, y, t, c, font);
+}
+
+static void draw_update(void)
+{
+    if (!upd_open)
+        return;
+    int st = upd->state, w = 500, h = 230, x = (SCREEN_W - w) / 2, y = 120;
+    char s[200];
+    gfx_fill_a(0, 0, SCREEN_W, SCREEN_H, 0x000000, 150);
+    gfx_fill(x, y, w, h, C_PANEL);
+    gfx_rect(x, y, w, h, 2, C_COPPER);
+    snprintf(s, sizeof s, "V%s IS OUT", upd->latest);
+    text_c(SCREEN_W / 2, y + 16, s, C_COPPER, FONT_LARGE);
+    text_c(SCREEN_W / 2, y + 58, "THIS IS V" JD_VERSION, C_DIM, FONT_SMALL);
+    if (st == UP_INSTALLING || st == UP_INSTALLED) {
+        int bw = 360, bx = (SCREEN_W - bw) / 2, p = st == UP_INSTALLED ? 100 : upd->progress;
+        p = p < 0 ? 0 : p > 100 ? 100 : p;
+        gfx_rect(bx, y + 104, bw, 16, 1, C_LINE);
+        gfx_fill(bx + 2, y + 106, (bw - 4) * p / 100, 12, C_COPPER);
+        if (st == UP_INSTALLED)
+            snprintf(s, sizeof s, "UPDATED - RESTARTING...");
+        else
+            snprintf(s, sizeof s, "DOWNLOADING... %d%%", p);
+        text_c(SCREEN_W / 2, y + 136, s, C_TEXT, FONT_SMALL);
+        return;
+    }
+    if (st == UP_FAILED) {
+        int n = snprintf(s, sizeof s, "%s", upd->err);
+        for (int i = 0; s[i]; i++)
+            s[i] = (char)toupper((unsigned char)s[i]);
+        while (n > 3 && gfx_text_w(s, FONT_SMALL) > w - 24) /* a long path: cut it short */
+            memcpy(s + (n -= 4), "...", 4);
+        text_c(SCREEN_W / 2, y + 100, s, C_RED, FONT_SMALL);
+        text_c(SCREEN_W / 2, y + 126, "NOTHING WAS CHANGED", C_DIM, FONT_SMALL);
+        text_c(SCREEN_W / 2, y + h - 40, "A:TRY AGAIN  B:CLOSE", C_TEXT, FONT_SMALL);
+        return;
+    }
+    text_c(SCREEN_W / 2, y + 100, "DOWNLOAD IT AND RESTART?", C_TEXT, FONT_SMALL);
+    text_c(SCREEN_W / 2, y + 126, "YOUR SONG, PRESETS AND MIDI MAP STAY", C_DIM, FONT_SMALL);
+    text_c(SCREEN_W / 2, y + h - 40, "A:UPDATE AND RESTART  B:NOT NOW", C_TEXT, FONT_SMALL);
 }
 
 static void draw_toast(void)
@@ -2221,6 +2312,7 @@ void ui_draw(uint32_t *fb)
     }
     if (page == PAGE_PLAY && quiet) {
         draw_quiet();
+        draw_update();
         draw_toast();
         return;
     }
@@ -2234,6 +2326,7 @@ void ui_draw(uint32_t *fb)
     default: draw_mix(); break;
     }
     draw_footer();
+    draw_update();
     draw_toast();
 }
 
