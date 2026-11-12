@@ -1041,6 +1041,8 @@ void engine_bow(int s, int on)
         str[s].hand = on && !LISTENING(&str[s]), str[s].hand_hold = 1;
 }
 
+int engine_bowing(int s) { return s >= 0 && s < NV && str[s].hand; }
+
 int engine_latch(int s, int how)
 {
     if (s >= NS && s < NV) { /* a key voice */

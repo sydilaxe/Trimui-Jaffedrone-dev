@@ -31,6 +31,14 @@ drawn Brick) ships in both packages. When a function, control or screen is added
 section in `tools/mkmanual.py`, run `make manual` and commit the PDF with the change. CI fails when the
 manual is older than its sources (`mkmanual.py --check`).
 
+The app updates itself from this repo's latest GitHub release (`src/update.c`, `src/net.c` with Mbed TLS,
+`dist/Jaffedrone/cacert.pem`; the same updater as Columbia Street's): releases must be full releases marked
+Latest with a `v<number>...` tag higher than the last, and the package names and the `Jaffedrone/` folder in
+them must stay as they are, or installed copies stop finding their updates. An update never writes the
+user's files (`*.sav*`, `*.jds`, `*.cfg`, the logs): keep `keep_users` in `update.c` in step with any new
+one. `make update-test` (CI runs it) checks it end to end. `mux_launch.sh` holds MustardOS's idle off while
+the app is open (its Idle Mute would stop the sound two minutes after the last press).
+
 The log (`src/log.c`, `jaffedrone_log.txt`) and `dist/Jaffedrone/sysinfo.sh` (`sysinfo.txt`) are for
 troubleshooting and tuning on the Brick and Brick Pro. `sysinfo.sh` is shared with HI5 and RadioScan; keep the
 copies the same. The audio thread only fills counters; all writing happens in the main thread.

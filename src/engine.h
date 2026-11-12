@@ -228,6 +228,7 @@ float engine_string_pitch(int s);          /* where string s is tuned now, as a 
  * with a light bounce), a wind voice gets a hard overblown attack */
 void engine_hammer(int s);
 void engine_bow(int s, int on); /* bow by hand while held, over the rings */
+int engine_bowing(int s);        /* bowed by hand now */
 void engine_overblow(int s, int on); /* while bowing: overblow (wind) or touch a harmonic (strings) */
 /* live expression (the Brick Pro's sticks, MIDI), on top of the song and
  * never saved: how hard the hand bows string s (1 = as R2, 0 .. 1.5), its

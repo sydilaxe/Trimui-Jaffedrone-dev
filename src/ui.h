@@ -17,6 +17,13 @@ enum { PAGE_PLAY, PAGE_SOUND, PAGE_COMPOSE, PAGE_MIX, PAGE_SONG, PAGE_MIDI, PAGE
 extern void (*ui_lock)(void);
 extern void (*ui_unlock)(void);
 
+/* The self-update prompt (update.h): the platform passes the updater's status and a
+ * function that starts the install. Without it the prompt never shows. While it is up
+ * (ui_update_open) it takes the buttons; the sound goes on. */
+struct UpdateStatus;
+void ui_set_update(const struct UpdateStatus *status, void (*install)(void));
+int ui_update_open(void);
+
 void ui_init(void);
 void ui_set_dir(const char *dir); /* where presets are kept (default: here) */
 void ui_button(int btn, int down);

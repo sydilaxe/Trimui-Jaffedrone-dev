@@ -52,10 +52,15 @@ jobs:
             file build/$d/jaffedrone | grep -q "ARM aarch64"
             # the binary carries the version (the info screen and the log show it)
             grep -qaF "$v" build/$d/jaffedrone || { echo "::error::build/$d/jaffedrone doesn't carry version $v"; exit 1; }
+            # the updater compares it with the latest release's tag, and fetches this device's package
+            strings build/$d/jaffedrone | grep -qx "THIS IS V$v"
+            strings build/$d/jaffedrone | grep -qx "/Jaffedrone-mustardos-$d.muxapp"
             # the app folder in "Jaffedrone/", with mux_launch.sh, wake_screen.sh and the glyph
             z=build/Jaffedrone-mustardos-$d.muxapp
             ls -l $z
-            for f in jaffedrone mux_launch.sh wake_screen.sh sysinfo.sh launch.sh glyph/jaffedrone.svg Jaffedrone-Manual.pdf; do
+            # the self-updater needs cacert.pem for HTTPS; the binary carries Mbed TLS, so its licence goes along
+            for f in jaffedrone mux_launch.sh wake_screen.sh sysinfo.sh launch.sh glyph/jaffedrone.svg Jaffedrone-Manual.pdf \
+                cacert.pem LICENSE-mbedtls.txt; do
               unzip -l $z | grep -q "Jaffedrone/$f$" || { echo "::error::$z has no $f"; exit 1; }
             done
             test "$(unzip -p $z Jaffedrone/DEVICE)" = $d
@@ -162,6 +167,9 @@ jobs:
           grep -q "latch checks: silent 1, starts 1, drones 1, fades 1, bow swells 1, wind drones 1 and fades 1" $r
           # strings and winds side by side; a v0.5 WIND song loads as winds
           grep -q "v0.5 WIND song load 1 voices DOUBLE DOUBLE body 6 (want GLASS 6)" $r
+          grep -q "^update prompt: shown 1, page and drone kept 1, the bow let go 1, A installs 1, B closes it 1, buttons back 1" $r
+      - name: Self-update against a local fake GitHub
+        run: make update-test
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -176,6 +184,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # A full release marked Latest, not a pre-release: the app updates itself from GitHub's latest
+    # release, which leaves pre-releases out.
     steps:
       # the packages carry the tag's version (the mustardos job builds with it)
       - uses: actions/checkout@v4
@@ -194,7 +204,7 @@ jobs:
             gh release create "$TAG" $files \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Jaffedrone $TAG (test build)" \
+              --title "Jaffedrone $TAG" \
               --notes-file .github/release-notes.md \
-              --prerelease
+              --latest
           fi

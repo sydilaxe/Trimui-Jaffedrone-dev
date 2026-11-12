@@ -9,3 +9,6 @@ dist/Jaffedrone/preset_*.jds
 __pycache__/
 dist/Jaffedrone/jaffedrone_ui.cfg
 dist/Jaffedrone/sysinfo.txt
+dist/Jaffedrone/LICENSE-mbedtls.txt
+third_party/mbedtls/
+third_party/mbedtls.tar.bz2

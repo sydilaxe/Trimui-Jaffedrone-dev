@@ -11,6 +11,9 @@
  * Built twice: JD_BRICKPRO adds the Brick Pro's two analog sticks. */
 #define _GNU_SOURCE
 #include <SDL2/SDL.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
 #include <math.h>
 #include <pthread.h>
 #include <sched.h>
@@ -36,6 +39,8 @@
 #include "sticks.h"
 #include "sync.h"
 #include "ui.h"
+#include "net.h"
+#include "update.h"
 
 #ifdef JD_BRICKPRO
 #define DEVICE_NAME "TrimUI Brick Pro"
@@ -51,6 +56,7 @@ static uint64_t now_us(void)
 }
 
 #define SAVE_PATH "jaffedrone.sav"
+#define CA_BUNDLE "cacert.pem" /* the certificates the updater checks GitHub with */
 
 static volatile sig_atomic_t got_signal;
 static void on_signal(int s) { got_signal = s; }
@@ -814,6 +820,73 @@ static void check_sleep(void)
     was = s;
 }
 
+/* ------------------------------------------------------------ system */
+
+/* What MustardOS does around the app, in the log, once a second: its idle state (two
+ * minutes without a press it dims the screen, slows the processor and, with Idle Mute on,
+ * mutes the sound; mux_launch.sh asks it not to) and the headphone jack. */
+static int jack_fd = -2;
+/* from linux/input.h, which can't be included here (its BTN_A and friends are ui.h's) */
+#define JD_EVIOCGNAME(len) _IOC(_IOC_READ, 'E', 0x06, len)
+#define JD_EVIOCGSW(len) _IOC(_IOC_READ, 'E', 0x1b, len)
+#define JD_SW_HEADPHONE 0x02
+#define JD_SW_LINEOUT 0x06
+
+static int jack_open(void)
+{
+    DIR *d = opendir("/dev/input");
+    struct dirent *e;
+    while (d && (e = readdir(d))) {
+        if (strncmp(e->d_name, "event", 5))
+            continue;
+        char path[300], name[128] = "";
+        snprintf(path, sizeof path, "/dev/input/%s", e->d_name);
+        int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0)
+            continue;
+        if (ioctl(fd, JD_EVIOCGNAME(sizeof name), name) > 0 && strstr(name, "Jack")) {
+            closedir(d);
+            return fd;
+        }
+        close(fd);
+    }
+    if (d)
+        closedir(d);
+    return -1;
+}
+
+static void system_watch(void)
+{
+    static int idle_was = -1, jack_was = -1;
+    char b[8] = "";
+    FILE *f = fopen("/run/muos/idle_state", "r");
+    if (f) {
+        int idle = fgets(b, sizeof b, f) && b[0] == '1';
+        fclose(f);
+        if (idle != idle_was && (idle_was >= 0 || idle)) {
+            jdlog_set_clock(now_us() / 1000);
+            jdlog("system: MustardOS %s", idle ? "went idle: screen dimmed, processor slowed, the sound muted if its Idle "
+                                                 "Mute is on (mux_launch.sh should have stopped this)"
+                                               : "is active again");
+        }
+        idle_was = idle;
+    }
+    if (jack_fd == -2)
+        jack_fd = jack_open();
+    if (jack_fd >= 0) {
+        unsigned char sw[8] = {0};
+        if (ioctl(jack_fd, JD_EVIOCGSW(sizeof sw), sw) >= 0) {
+            int hp = !!(sw[0] & 1 << JD_SW_HEADPHONE),
+                lo = !!(sw[0] & 1 << JD_SW_LINEOUT), j = hp | lo << 1;
+            if (j != jack_was) {
+                jdlog_set_clock(now_us() / 1000);
+                jdlog("system: headphone jack %s%s", hp ? "in" : "out", lo ? " (line out)" : "");
+            }
+            jack_was = j;
+        }
+    }
+}
+
 /* ------------------------------------------------------------- cores */
 
 static int ncores(void) { return (int)sysconf(_SC_NPROCESSORS_ONLN); }
@@ -825,6 +898,29 @@ static void pin_self(int lo, int hi)
     for (int c = lo; c <= hi; c++)
         CPU_SET(c, &cs);
     pthread_setaffinity_np(pthread_self(), sizeof cs, &cs);
+}
+
+/* ------------------------------------------------------------- update */
+
+static void install_update(void) { update_install_start("."); }
+
+/* Ask GitHub for the latest release 5 s after starting (so Wi-Fi is up), then
+ * every minute until it answers, five tries in all. */
+static void update_watch(Uint32 now, Uint32 *next_check, int *tries)
+{
+    static int logged;
+    UpdateStatus *u = update_status();
+    if ((u->state == UP_CURRENT || u->state == UP_AVAILABLE) && !logged) {
+        logged = 1;
+        jdlog("update: the latest release is v%s, this is v%s", u->latest, JD_VERSION);
+    }
+    if ((u->state == UP_IDLE || u->state == UP_CHECK_FAILED) && *tries < 5 && (Sint32)(now - *next_check) >= 0) {
+        if (u->state == UP_CHECK_FAILED)
+            jdlog("%s", u->err);
+        ++*tries;
+        *next_check = now + 60000;
+        update_check_start();
+    }
 }
 
 int main(int argc, char **argv)
@@ -973,8 +1069,16 @@ int main(int argc, char **argv)
         /* the bottom port as a clock link: a Brick with a hub can lead this one (link.h) */
         link_follow_start();
     }
+    int update_auto = env_int("JD_UPDATE", 1) != 0, update_tries = 0;
+    if (update_auto) {
+        net_init(CA_BUNDLE);
+        ui_set_update(update_status(), install_update);
+        jdlog("update check on: from %s", update_asset());
+    }
+    else
+        jdlog("update check off");
     jdlog("startup: running after %.2f s", (now_us() - t_start) / 1e6);
-    Uint32 last = SDL_GetTicks(), last_save = last, next_draw = last;
+    Uint32 last = SDL_GetTicks(), last_save = last, next_draw = last, update_next = last + 5000, relaunch_at = 0;
     int frames = 0, splash_was = 1;
     /* the renderer is made again once the screen wake has finished, if one runs */
     const char *wake_cmd = getenv("JD_SCREEN_WAKE");
@@ -1009,6 +1113,19 @@ int main(int argc, char **argv)
             timing.late += as.short_calls;
         }
         jdlog_tick(now_us() / 1000, &timing);
+        static Uint32 sys_next;
+        if ((Sint32)(now - sys_next) >= 0) {
+            sys_next = now + 1000;
+            system_watch();
+        }
+        if (update_auto)
+            update_watch(now, &update_next, &update_tries);
+        if (update_status()->state == UP_INSTALLED && !relaunch_at) {
+            jdlog("update: v%s installed, relaunching", update_status()->latest);
+            relaunch_at = now + 1200; /* long enough to read "restarting" */
+        }
+        if (relaunch_at && (Sint32)(now - relaunch_at) >= 0)
+            break;
 
 #ifdef JD_BRICKPRO
         leds_update();
@@ -1053,7 +1170,9 @@ int main(int argc, char **argv)
     /* why it closed: MENU, or the system (a signal, or SDL told to quit) */
     jdlog_set_clock(now_us() / 1000);
     char why[64];
-    if (ui_quit_requested())
+    if (relaunch_at)
+        snprintf(why, sizeof why, "updated to v%s, restarting", update_status()->latest);
+    else if (ui_quit_requested())
         snprintf(why, sizeof why, "MENU");
     else if (got_signal)
         snprintf(why, sizeof why, "the system sent signal %d (%s)", (int)got_signal, strsignal(got_signal));
@@ -1074,5 +1193,5 @@ int main(int argc, char **argv)
         SDL_CloseAudioDevice(dev);
     ahead_stop();
     SDL_Quit();
-    return 0;
+    return relaunch_at ? RELAUNCH_STATUS : 0; /* launch.sh starts the new version */
 }
