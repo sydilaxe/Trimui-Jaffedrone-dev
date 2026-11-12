@@ -47,7 +47,8 @@ static inline float exp_neg(float x)
     return u.f;
 }
 
-#define SONG_MAGIC 0x4a445212u    /* JDR18: the MIDI clock settings (TrimUI) */
+#define SONG_MAGIC 0x4a445213u    /* JDR19: triplet, dotted and quintuple ring rates, ACCENT (TrimUI) */
+#define SONG_MAGIC_V18 0x4a445212u /* JDR18: the MIDI clock settings (TrimUI) */
 #define SONG_MAGIC_V17 0x4a445211u /* JDR17: mono + clock output (v0.13) */
 #define SONG_MAGIC_V16 0x4a445210u /* JDR16: AIR, and each voice playing or listening (v0.12) */
 #define SONG_MAGIC_V15 0x4a44520fu /* JDR15: per-string LATCH bow ATTACK (v0.9) */
@@ -96,6 +97,7 @@ typedef struct {
 #define NGP_V6 10
 #define NFX_V6 12
 #define NFX_V15 17 /* effect params up to JDR15 (before AIR) */
+#define NSP_V18 28 /* string params up to JDR18 (before ACCENT) */
 #define NSP_V15 27
 typedef struct {
     uint32_t magic;
@@ -178,7 +180,7 @@ typedef struct { /* JDR15: the song before AIR */
 typedef struct { /* JDR16: the song before the mono + clock output */
     uint32_t magic;
     int on[NS];
-    int sp[NS][NSP];
+    int sp[NS][NSP_V18];
     int gp[28];
     int lfo[NLFO][NLP];
     int fx[NFX];
@@ -190,7 +192,7 @@ typedef struct { /* JDR16: the song before the mono + clock output */
 typedef struct { /* JDR17: the song before the MIDI clock settings */
     uint32_t magic;
     int on[NS];
-    int sp[NS][NSP];
+    int sp[NS][NSP_V18];
     int gp[32];
     int lfo[NLFO][NLP];
     int fx[NFX];
@@ -198,6 +200,18 @@ typedef struct { /* JDR17: the song before the MIDI clock settings */
     int prog_note[NPROG][NS], prog_fine[NPROG][NS];
     char prog_name[NPROG][24];
 } SongV17;
+
+typedef struct { /* JDR18: the song before the new rates and ACCENT */
+    uint32_t magic;
+    int on[NS];
+    int sp[NS][NSP_V18];
+    int gp[NGP];
+    int lfo[NLFO][NLP];
+    int fx[NFX];
+    int prog_n, prog_pos;
+    int prog_note[NPROG][NS], prog_fine[NPROG][NS];
+    char prog_name[NPROG][24];
+} SongV18;
 
 #define NBEAT 33 /* binaural beat settings */
 Song song;
@@ -272,9 +286,10 @@ static const ParamDef sparams[NSP] = {
     {"NOTE", -24, 24},  {"FINE", -50, 50}, {"LEVEL", 0, 100}, {"BOW", 0, 100},  {"DECAY", 0, 100},
     {"BRIGHT", 0, 100}, {"FOLD", 0, 100},  {"STIFF", 0, 100}, {"POS", 0, 100},  {"BUZZ", 0, 100},
     {"PLUCK", 0, 1},    {"P STEPS", 1, 16}, {"P PULSES", 1, 16}, {"P ROTATE", 0, 15},
-    {"BOW RING", 0, 1}, {"B STEPS", 1, 16}, {"B PULSES", 1, 16}, {"B ROTATE", 0, 15}, {"RATE", 0, 5},
+    {"BOW RING", 0, 1}, {"B STEPS", 1, 16}, {"B PULSES", 1, 16}, {"B ROTATE", 0, 15}, {"RATE", 0, NRATE - 1},
     {"PAN", -50, 50},   {"P CHANCE", 0, 100}, {"B CHANCE", 0, 100}, {"HARM", 0, 4}, {"GATE", 0, 100},
-    {"VOICE", 0, NEXCITE + NPERC}, {"RELEASE", 0, 100}, {"ATTACK", 0, 100}, {"AURA", 0, 2}};
+    {"VOICE", 0, NEXCITE + NPERC}, {"RELEASE", 0, 100}, {"ATTACK", 0, 100}, {"AURA", 0, 2},
+    {"ACCENT", 0, 100}};
 static const ParamDef gparams[NGP] = {{"VOICING", 0, 1},   {"SCALE", 0, NSCALE - 1}, {"ROOT", 24, 72},
                                       {"CHANGES", 0, 5},   {"BPM", 40, 200},         {"DRIFT", 0, 100},
                                       {"GLIDE", 0, 7},     {"CUTOFF", 0, 100},       {"MASTER", 0, 100},
@@ -296,8 +311,23 @@ static const ParamDef fparams[NFX] = {{"TIME", 0, 7},   {"FEEDBK", 0, 95}, {"MIX
                                       {"SYMP", 0, NSYMP}, {"S TUNE", 0, NSTUNE - 1}, {"S OCT", -1, 2},
                                       {"S LEVEL", 0, 100}, {"S RING", 0, 100}, {"AMOUNT", 0, 100}};
 /* rhythm step lengths in 16ths */
-static const int rate_div16[6] = {1, 2, 4, 8, 16, 32};
-static const char *const rate_names[6] = {"1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BARS"};
+/* ring step lengths, in 24ths of a beat: the first six are the old ones
+ * (their numbers are in saved songs), then the triplets, dotted and
+ * quintuple ones; rate_order walks them shortest to longest */
+static const int rate_t24[NRATE] = {6, 12, 24, 48, 96, 192, 3, 4, 8, 16, 18, 30, 36, 60};
+static const char *const rate_names[NRATE] = {"1/16", "1/8", "1/4",  "1/2",  "1 BAR", "2 BARS", "1/32",
+                                              "1/16T", "1/8T", "1/4T", "1/8.", "5/16", "1/4.", "5/8"};
+static const int rate_order[NRATE] = {6, 7, 0, 8, 1, 9, 10, 2, 11, 12, 3, 13, 4, 5};
+static float rate16(int r) { return rate_t24[r < 0 || r >= NRATE ? 0 : r] / 6.f; } /* in 16ths */
+int engine_rate_rank(int r)
+{
+    for (int i = 0; i < NRATE; i++)
+        if (rate_order[i] == r)
+            return i;
+    return 0;
+}
+int engine_rate_at(int rank) { return rate_order[rank < 0 ? 0 : rank >= NRATE ? NRATE - 1 : rank]; }
+int engine_rate_step(int r, int dir) { return engine_rate_at(engine_rate_rank(r) + dir); }
 static const int change_bars[6] = {0, 1, 2, 4, 8, 16};
 static const char *const change_names[6] = {"OFF", "1 BAR", "2 BARS", "4 BARS", "8 BARS", "16 BARS"};
 static const char *const body_names[NBODY] = {"WOOD", "GOURD", "BRONZE", "TUNED", "METAL", "CERAMIC", "GLASS"};
@@ -334,11 +364,15 @@ static const char *const glide_names[8] = {"OFF", "1/32", "1/16", "1/8", "1/4", 
  * Notes are JUST MAJOR degrees: root, fifth, octave, twelfth, two octaves.
  * Each string has its own sparse pluck rhythm; the top string's bow ring
  * breathes in and out, the other bows play continuously. */
-static const int def_sp[NS][NSP] = {{0, 0, 80, 35, 85, 45, 0, 0, 0, 0, 1, 4, 1, 0, 0, 4, 2, 0, 2, 0, 100, 100, 0, 0, 0, 55, 68, 0},
-                                    {4, -4, 65, 45, 92, 40, 0, 0, 0, 0, 1, 5, 2, 0, 0, 5, 3, 0, 2, -22, 90, 100, 0, 0, 0, 55, 68, 0},
-                                    {7, 3, 55, 40, 95, 55, 0, 0, 0, 0, 1, 3, 1, 1, 0, 3, 2, 0, 3, 22, 100, 100, 0, 0, 0, 55, 68, 0},
-                                    {11, 0, 40, 50, 90, 65, 0, 0, 0, 0, 1, 7, 2, 3, 0, 7, 3, 0, 2, -12, 70, 100, 0, 0, 0, 55, 68, 0},
-                                    {14, 2, 30, 55, 93, 70, 0, 0, 0, 0, 1, 6, 1, 2, 1, 5, 3, 0, 2, 12, 60, 80, 0, 0, 0, 55, 68, 0}};
+/* the default rings: a steady pulse and two rhythms across it, gently. String
+ * 1 plucks every half note, 2 plucks 3 in 8 on eighths, 3 plucks 2 in 3 on
+ * quarter triplets (three against two, slowly), 4 only drones and 5 plucks
+ * 2 in 5 on 5/16ths, now and then */
+static const int def_sp[NS][NSP] = {{0, 0, 80, 30, 85, 45, 0, 0, 0, 0, 1, 2, 1, 0, 0, 4, 2, 0, 2, 0, 100, 100, 0, 0, 0, 55, 68, 0, 35},
+                                    {4, -4, 65, 40, 90, 40, 0, 0, 0, 0, 1, 8, 3, 0, 0, 5, 3, 0, 1, -22, 100, 100, 0, 0, 0, 55, 68, 0, 30},
+                                    {7, 3, 55, 35, 90, 55, 0, 0, 0, 0, 1, 3, 2, 0, 0, 3, 2, 0, 9, 22, 100, 100, 0, 0, 0, 55, 68, 0, 30},
+                                    {11, 0, 40, 50, 90, 65, 0, 0, 0, 0, 0, 5, 3, 0, 0, 7, 3, 0, 2, -12, 100, 100, 0, 0, 0, 55, 68, 0, 0},
+                                    {14, 2, 30, 50, 93, 70, 0, 0, 0, 0, 1, 5, 2, 0, 0, 5, 3, 0, 11, 12, 75, 100, 0, 0, 0, 55, 68, 0, 25}};
 static const int def_gp[NGP] = {MODE_CHORD, 1, 45, 4, 72, 30, 3, 70, 80, SYNC_OFF, 50, 50, 45, 30, 75, 1,
                                 ENG_STRINGS, EX_FLUTE, MAT_WOOD, 0, SUB_OCT, 60, 20, 45, 0, MODAL_AUTO, PROG_FREE, PLAY_RINGS,
                                 OUT_STEREO, 0, 1, 5, MIDI_AUTO, 0};
@@ -471,7 +505,7 @@ void sparam_format(int s, int p, char *b, int n)
         return;
     }
     case SP_FINE: snprintf(b, n, "%+dc", x); return;
-    case SP_RATE: snprintf(b, n, "%s", rate_names[x]); return;
+    case SP_RATE: snprintf(b, n, "%s", rate_names[x < 0 || x >= NRATE ? 0 : x]); return;
     case SP_HARM: {
         static const char *const hn[5] = {"OFF", "2ND", "3RD", "4TH", "5TH"};
         static const char *const rn[5] = {"1ST", "2ND", "3RD", "4TH", "5TH"};
@@ -717,6 +751,7 @@ typedef struct {
     int hand_hold, hand_quiet;
     float vib_ph; /* MIDI vibrato's phase (cycles) */
     int klatch;   /* a key voice played as a latch (its own, whatever PLAY MODE is) */
+    float acc, acc_env; /* ACCENT: the last ring hit's, and its push dying away */
     int latched;   /* LATCH: LATCH_PLUCK or LATCH_BOW while it drones, else LATCH_OFF */
     int switching; /* SP_VOICE changed: fading out before the new voice */
 
@@ -752,7 +787,8 @@ int engine_air_mode; /* AIR_LISTEN or AIR_FLOW */
 #define LISTENING(st) ((engine_listen >> (int)((st) - str)) & 1)
 static double beat_phase, sync_rate = 1.0;
 static uint32_t beat;
-static int64_t last16 = -1;  /* the last 16th the rhythms acted on */
+static int64_t last24 = -1;  /* the last 24th of a beat the rhythms acted on */
+static float acc_dec;        /* an accent's push, per sample */
 static float flash[NS][NRING];
 /* sympathetic coupling: every string hears the others through the bridge */
 static float bridge, bridge_x1, bridge_hp;
@@ -1166,19 +1202,22 @@ void engine_set_position(double steps)
     beat = (uint32_t)(steps / 4.0);
     beat_phase = steps / 4.0 - beat;
     live.beat = beat;
-    last16 = (int64_t)beat * 4 + (int)(beat_phase * 4.0); /* no double hit after a jump */
+    last24 = (int64_t)beat * 24 + (int)(beat_phase * 24.0); /* no double hit after a jump */
     aclock_shift(engine_position() - was);
 }
 
 double engine_steps_per_frame(void) { return live.playing && sr > 0.f ? bpm_f / 15.0 / sr * sync_rate : 0.0; }
 
 /* a new 16th: advance the rings, pluck, open bows, maybe change chord */
+/* a new 24th of a beat: the rings whose step it starts advance (each at its
+ * own rate: straight, triplet, dotted, quintuple), pluck and open bows;
+ * on a 16th, maybe a chord change */
 static void on_step(int64_t k)
 {
     for (int s = 0; s < NS; s++) {
         const int *P = song.sp[s];
         String *st = &str[s];
-        int div = rate_div16[P[SP_RATE]];
+        int div = rate_t24[P[SP_RATE] < 0 || P[SP_RATE] >= NRATE ? 0 : P[SP_RATE]];
         if (k % div || song.gp[GP_PLAYMODE] == PLAY_LATCH) /* in LATCH the rings rest */
             continue;
         int64_t idx = k / div;
@@ -1202,12 +1241,19 @@ static void on_step(int64_t k)
             if (r == RING_PLUCK && song.on[s]) {
                 /* the first pulse of the cycle a little stronger */
                 int first = ((i - rot) % steps + steps) % steps == 0;
-                string_pluck(st, first ? 0.85f : 0.55f + 0.2f * frand());
+                float amp = first ? 0.85f : 0.55f + 0.2f * frand();
+                st->acc = P[SP_ACCENT] / 100.f;
+                if (st->acc > 0.f) /* ACCENT: a harder hit, the bow lifted for a moment */
+                    amp *= 1.f + 0.5f * st->acc, st->acc_env = 1.f;
+                string_pluck(st, amp);
             }
         }
     }
+    if (k % 6) /* the chords change on 16ths */
+        return;
+    int64_t k16 = k / 6;
     int bars = change_bars[song.gp[GP_CHANGES]];
-    if (bars && k > 0 && k % (16 * bars) == 0 && frand() * 100.f < song.gp[GP_CHANCE])
+    if (bars && k16 > 0 && k16 % (16 * bars) == 0 && frand() * 100.f < song.gp[GP_CHANCE])
         engine_next_chord();
 }
 
@@ -2440,11 +2486,11 @@ static void wind_setup(WindVoice *v, String *st, const int *P, float hz, float s
     v->vib = P[SP_POS] / 100.f;
     v->growl = P[SP_BUZZ] / 100.f;
     v->latch = st >= str + NS ? st->klatch : song.gp[GP_PLAYMODE] == PLAY_LATCH; /* a key voice: its own */
-    v->bow_k = v->latch ? latch_k(st, P, 1) : 1.f - expf(-1.f / fmaxf(0.5f * sps16 * rate_div16[P[SP_RATE]], 0.25f * sr));
+    v->bow_k = v->latch ? latch_k(st, P, 1) : 1.f - expf(-1.f / fmaxf(0.2f * sps16 * rate16(P[SP_RATE]), 0.03f * sr));
     v->hand_k = 1.f - expf(-1.f / (0.15f * sr)); /* breath comes quicker than a drawn bow */
     v->hand_rel = hand_rel;
     /* a tongued note holds for most of a ring step (0.08 .. 1 s) */
-    v->art_hold = fminf(1.f, fmaxf(0.08f, 0.6f * sps16 * rate_div16[P[SP_RATE]] / sr));
+    v->art_hold = fminf(1.f, fmaxf(0.08f, 0.6f * sps16 * rate16(P[SP_RATE]) / sr));
     v->art_k = 1.f - expf(-1.f / (0.006f * sr));
     v->vib_inc = (4.6f + 0.3f * (float)(st - str)) / sr; /* cycles a sample */
     static const float pmax[NEXCITE] = {1.0f, 0.95f, 0.8f, 1.25f, 1.0f, 1.1f, 1.2f};
@@ -2797,7 +2843,7 @@ void engine_voices(EngineBlock *b, int frames)
         if (LISTENING(st)) /* never played: it only hears */
             st->bow_open = 0, st->hand = 0, st->bow_env = st->hand_env = 0.f, st->burst = 0, st->art_t = -1.f, st->hm_on = 0;
         bow_k[s] = lm ? latch_k(st, P, 0)
-                              : 1.f - expf(-1.f / fmaxf(0.5f * sps16 * rate_div16[P[SP_RATE]], 0.25f * sr));
+                              : 1.f - expf(-1.f / fmaxf(0.2f * sps16 * rate16(P[SP_RATE]), 0.03f * sr));
         /* tone shapers: FOLD drives the output into a wavefolder, STIFF
          * sets the allpass dispersion in the loop (inharmonic, bell-like),
          * POS is the pick-position comb (0 = off, else 1 .. 50% along) */
@@ -2935,10 +2981,10 @@ void engine_voices(EngineBlock *b, int frames)
                     beat++;
                     live.beat = beat;
                 }
-                int64_t k16 = (int64_t)beat * 4 + (int)(beat_phase * 4.0);
-                if (k16 != last16) {
-                    last16 = k16;
-                    on_step(k16);
+                int64_t k24 = (int64_t)beat * 24 + (int)(beat_phase * 24.0);
+                if (k24 != last24) {
+                    last24 = k24;
+                    on_step(k24);
                 }
             }
             play_g += (play_t - play_g) * (play_t > play_g ? att_k : rel_k);
@@ -3080,7 +3126,8 @@ void engine_voices(EngineBlock *b, int frames)
                 float hr = fmaxf(0.f, 1.f - st->env * 1.4f);
                 /* a bow being drawn starts darker and brightens as it bites */
                 st->bow_lp += (fnoise() - st->bow_lp) * bow_col[s] * (0.35f + 0.65f * open);
-                float ex = st->bow_lp * pg * (bow_amp[s] * m_bow * open * (headroom + (hr - headroom) * h) + 0.09f * h * hr);
+                float lift = st->acc_env > 0.f ? 1.f - 0.85f * st->acc * st->acc_env : 1.f; /* ACCENT: the bow lifts */
+                float ex = st->bow_lp * pg * lift * (bow_amp[s] * m_bow * open * (headroom + (hr - headroom) * h) + 0.09f * h * hr);
                 /* the other strings, heard through the bridge */
                 ex += couple * (bridge - st->last_y) + air_k[0] * air;
                 st->last_y = y * st->gain;
@@ -3098,7 +3145,7 @@ void engine_voices(EngineBlock *b, int frames)
                      * a string that is already loud, so the loop never
                      * clips on a pluck */
                     float ph = 1.f - (float)st->burst / st->burst_len;
-                    float soft = pg * pk_gain[s] * (1.f - 0.6f * fminf(1.f, st->env));
+                    float soft = pg * pk_gain[s] * (1.f - 0.6f * (1.f - st->acc) * fminf(1.f, st->env));
                     st->burst--;
                     if (st->hammer) /* a hammer: a short round push, bright, with a little felt noise */
                         ex += (2.4f * sin01(ph) + 0.9f * fnoise()) * st->burst_amp * soft; /* one cycle: no DC left in the loop */
@@ -3140,6 +3187,10 @@ void engine_voices(EngineBlock *b, int frames)
                 }
                 /* GATE: the voice's sound follows its bow (breath) ring */
                 o *= st->lvl_cur * st->gain * pg * (1.f - gate_d[s] + gate_d[s] * fmaxf(st->bow_env, st->hand_env));
+                if (st->acc_env > 0.f) { /* ACCENT: the hit pushed out of the drone, dying in about 70 ms */
+                    o *= 1.f + 1.2f * st->acc * st->acc_env;
+                    st->acc_env = st->acc_env > 1e-4f ? st->acc_env * acc_dec : 0.f;
+                }
                 float pan = clk_out ? 0.f : song.sp[VSRC(s)][SP_PAN] / 50.f;
                 L += o * (1.f - pan);
                 R += o * (1.f + pan);
@@ -3589,12 +3640,13 @@ void engine_init(int sample_rate)
     rng_k = 0x6c8e9cf5u;
     for (int s = 0; s < NS; s++)
         str[s].art_t = -1.f, str[s].lim_g = 1.f, str[s].hand_p = 1.f; /* no tongued note yet; nothing limited */
+    acc_dec = expf(-1.f / (0.07f * sr)); /* an accent's push dies in about 70 ms */
     bpm_f = (float)song.gp[GP_BPM];
     for (int s = 0; s < NS; s++)
         str[s].bow_open = 1, str[s].bow_env = 1.f;
     beat = 0;
     beat_phase = 0.0;
-    last16 = -1;
+    last24 = -1;
     dly_time_cur = 0.f;
     bridge = bridge_x1 = bridge_hp = 0.f;
     lev_env = 0.f;
@@ -3713,6 +3765,7 @@ FROM_V1X(from_v14, SongV14)
 FROM_V1X(from_v15, SongV15)
 FROM_V1X(from_v16, SongV16)
 FROM_V1X(from_v17, SongV17)
+FROM_V1X(from_v18, SongV18)
 
 static void from_v12(Song *s, const SongV12 *o)
 {
@@ -3858,6 +3911,7 @@ static int song_read(const char *path, Song *out)
     SongV15 o15;
     SongV16 o16;
     SongV17 o17;
+    SongV18 o18;
     SongV6 o6;
     SongV7 o7;
     SongV8 o8;
@@ -3869,6 +3923,10 @@ static int song_read(const char *path, Song *out)
         memcpy(&magic, buf, sizeof magic);
     if (magic == SONG_MAGIC && got == sizeof s)
         memcpy(&s, buf, sizeof s);
+    else if (magic == SONG_MAGIC_V18 && got == sizeof o18) {
+        memcpy(&o18, buf, sizeof o18);
+        from_v18(&s, &o18);
+    }
     else if (magic == SONG_MAGIC_V17 && got == sizeof o17) {
         memcpy(&o17, buf, sizeof o17);
         from_v17(&s, &o17);
@@ -3928,10 +3986,13 @@ static int song_read(const char *path, Song *out)
             s.lfo[l][p] = clampi(s.lfo[l][p], lparams[p].min, lparams[p].max);
     for (int p = 0; p < NFX; p++)
         s.fx[p] = clampi(s.fx[p], fparams[p].min, fparams[p].max);
-    if (magic != SONG_MAGIC && magic != SONG_MAGIC_V16 && magic != SONG_MAGIC_V15 && magic != SONG_MAGIC_V14 && magic != SONG_MAGIC_V13 &&
-        magic != SONG_MAGIC_V12) /* the beat was in half hertz before JDR12 */
+    /* (the magic numbers count up, JDR3 .. JDR19) */
+    if (magic < SONG_MAGIC_V12) /* the beat was in half hertz before JDR12 */
         s.fx[FX_BINBEAT] = beat_index(s.fx[FX_BINBEAT] * 0.5f);
-    if (magic != SONG_MAGIC && magic != SONG_MAGIC_V16 && magic != SONG_MAGIC_V15 && magic != SONG_MAGIC_V14 && magic != SONG_MAGIC_V13 && s.gp[GP_ENGINE] == ENG_WIND) {
+    if (magic < SONG_MAGIC) /* no ACCENT before JDR19: the hits as they were */
+        for (int i = 0; i < NS; i++)
+            s.sp[i][SP_ACCENT] = 0;
+    if (magic < SONG_MAGIC_V13 && s.gp[GP_ENGINE] == ENG_WIND) {
         /* a WIND song from before v0.6: every voice takes the exciter, and
          * the body the bore's material, as the engine used to */
         for (int i = 0; i < NS; i++)

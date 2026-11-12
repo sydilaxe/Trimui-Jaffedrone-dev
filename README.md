@@ -241,15 +241,24 @@ LATCH and the RELEASE times are saved with songs and presets.
 
 ## Rhythm: two rings per string
 
-Each string has two Euclidean rings (steps, pulses, rotation) that share one step length, from 1/16 to two bars:
+Each string has two Euclidean rings (steps, pulses, rotation) that share one step length (RATE), straight,
+triplet, dotted or quintuple, as on RadioScan: 1/32, 1/16T, 1/16, 1/8T, 1/8, 1/4T, 1/8., 1/4, 5/16, 1/4., 1/2,
+5/8, 1 bar and 2 bars. Each string keeps its own time, so five strings play real polyrhythms: eighths against
+eighth triplets, sixteenths against quintuple 5/16ths. The default song keeps it gentle: string 1 plucks every half note, string 2 3 in 8
+on eighths, string 3 2 in 3 on quarter triplets (three against two, slowly), string 4 only drones and string 5
+plucks 2 in 5 on 5/16ths, now and then.
 
 - **The pluck ring** plucks the string on its pulses. The first pulse of each cycle is a little stronger.
 - **The bow ring** swells the bow in and out on its pulses, so the string breathes. With the bow ring off, the
   bow plays continuously.
 
 Each ring can be switched on and off and has a **CHANCE**: how often each pulse actually plays. Below 100%
-the patterns breathe instead of looping exactly. The rings are meant to be simple and slow, and each string
-keeps its own.
+the patterns breathe instead of looping exactly. The bow ring's swells follow its pulses closely (about a
+fifth of a step to swell in or out), so a bow rhythm reads as pulses.
+
+Each string has an **ACCENT** (MIX page, 0-100): how hard its pluck ring's hits stand out of the drone. On
+each hit the bow lifts for a moment and the hit is louder, pushed out for about 70 ms. At 0 the hits sound
+as they always did; songs from before it load with 0.
 
 Each string also has a **GATE** (MIX page): how far its sound follows its own bow ring. At 0 the bow ring
 only shapes the bowing; at 100 it gates the string's level as well. This replaces the old master gate.
@@ -334,7 +343,7 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
   voicing, changes, CHANCE, glide, tempo, MOTION, HOME, COLOR, EVOLVE, RELATE, drift, Wi-Fi sync and the
   two LFOs.
 - **SONG:** ten presets, the chord memory, key lock and mode, and the drone's attack and release.
-- **MIX:** each string's level, pan and gate with a meter, master, the sympathetic strings' level, the
+- **MIX:** each string's level, pan, gate, accent and AURA with a meter, master, the sympathetic strings' level, the
   undertones (SUB, SUB DIV, SUB RES), then delay,
   reverb and binaural. Under AURA: the MIDI clock's **MIDI** and **START** settings (see
   [USB: MIDI and audio](#usb-midi-and-audio)).
@@ -439,7 +448,7 @@ on the shoulder buttons.
 | R2 (hold) | bow the selected string by hand: the bow is drawn slowly, swelling over about two seconds and brightening as it bites, then sings steadily while R2 is held (WIND: blow). Held, R2 still makes the quick sound changes, bowing as it does |
 | L2 + R2, either first | bow with a harmonic touch: the next harmonic up sings (WIND: overblow, an octave up, a twelfth for REED); bowing with R2, add L2 for overblows as you bow |
 | L2 + up / down | more / fewer steps |
-| L2 + left / right | step length (right = faster) |
+| L2 + left / right | step length, straight, triplet, dotted or quintuple (right = faster) |
 | L2 + X | more pulses |
 | L2 + Y | rotate back |
 | L2 + A | mute / unmute the string (it fades out and in; a red bar marks it) |

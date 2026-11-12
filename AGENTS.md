@@ -22,7 +22,8 @@ sample for sample (the harness checks "render split ... same sound 1"). Nothing 
 feed back into the voices.
 
 `GP_MIDI` and `GP_MIDISTART` (the MIDI clock's way and START / STOP, on MIX) are the TrimUI's: they made the
-song JDR18, which loads every older song; the Miyoo version doesn't have them yet, so its loader rejects a
+song JDR18; the triplet, dotted and quintuple ring rates and `SP_ACCENT` made it JDR19, which loads every
+older song (with ACCENT 0, so it sounds as it did). The Miyoo version has neither yet, so its loader rejects a
 song saved here. Like WIFI SYNC and the output, they belong to the Brick: loading a preset keeps them.
 
 The manual (`docs/Jaffedrone-Manual.pdf`, made by `tools/mkmanual.py` from the test's screenshots, on a

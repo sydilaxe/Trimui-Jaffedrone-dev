@@ -383,7 +383,9 @@ def build(out):
                Paragraph("Each string has two Euclidean rings: the <b>pluck ring</b> plucks on its pulses and "
                          "the <b>bow ring</b> swells the bow on its pulses (off, the bow plays steadily). A ring "
                          "spreads its pulses as evenly as it can over its steps, like the rhythms of HI5 and "
-                         "RadioScan.", P),
+                         "RadioScan. Each string keeps its own step length, so they play polyrhythms: eighths "
+                         "against eighth triplets, sixteenths against 5/16ths. ACCENT (MIX) makes a string's hits "
+                         "stand out of the drone.", P),
                table([(num(1), B("◀") + " " + B("▶"), "choose a string"),
                       (num(2), B("▲") + " " + B("▼"), "choose its pluck ring or bow ring"),
                       (num(3), B("A"), "switch the ring on or off"),
@@ -397,7 +399,9 @@ def build(out):
           side(Brick("play", {"L2": 1, "UP": 2, "DOWN": 2, "LEFT": 3, "RIGHT": 3, "X": 4, "Y": 5, "A": 6}),
                table([(num(1), "hold " + B("L2"), "then:"),
                       (num(2), B("▲") + " " + B("▼"), "more / fewer steps"),
-                      (num(3), B("◀") + " " + B("▶"), "step length (right is faster): 1/16 to 2 bars"),
+                      (num(3), B("◀") + " " + B("▶"), "step length (right is faster): 1/32 to 2 bars, with triplets "
+                                                             "(1/16T, 1/8T, 1/4T), dotted (1/8., 1/4.) and quintuple "
+                                                             "(5/16, 5/8)"),
                       (num(4), B("X"), "more pulses"),
                       (num(5), B("Y"), "rotate back"),
                       (num(6), B("A"), "mute or unmute the string (a red bar marks it)")],
@@ -493,7 +497,8 @@ def build(out):
                  [Paragraph("<b>COMPOSE</b>: the scale and root (a wheel of the scale's notes, the chord "
                             "lit), how often chords change and how: MOTION, HOME, COLOR, CHANCE, RELATE, "
                             "EVOLVE, GLIDE, tempo, Wi-Fi sync and two LFOs.", SMALL),
-                  Paragraph("<b>MIX</b>: each voice's LEVEL, PAN, GATE (RELEASE in LATCH) and AURA, the master, "
+                  Paragraph("<b>MIX</b>: each voice's LEVEL, PAN, GATE (RELEASE in LATCH), ACCENT (how its pluck ring's "
+                            "hits stand out: the bow lifts, the hit is louder) and AURA, the master, "
                             "undertones (SUB), then AURA, delay, reverb and binaural; under AURA, the MIDI "
                             "clock's MIDI and START settings (see USB).", SMALL)]],
                 colWidths=(250, 250))]

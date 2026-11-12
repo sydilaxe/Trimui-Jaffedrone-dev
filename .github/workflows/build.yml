@@ -98,6 +98,7 @@ jobs:
           grep -q "midi key: A3 -> .*(want 220: 1)" $r
           grep -q "^midi keys: .*(1: 1): 1$" $r
           grep -q "^midi learn: .*: 1$" $r
+          grep -q "^polyrhythm: .*: 1$" $r
           grep -q "^midi key play: .*: 1$" $r
           grep -q "^stopped: .*the drone still stopped (1: 1); R2 + up lifts the bow .*(1: 1)$" $r
           grep -q "^midi cc: .*not queued: 1$" $r
@@ -132,7 +133,7 @@ jobs:
           grep -q "sync: bpm=128.0 peers=1 leader=1" $r
           grep -q "^sync timing: .*(want under 1 and 2: 1)" $r
           grep -q "^sync timing, a leader without echo: .*(want under 6: 1)" $r
-          grep -q "ombak 4 Hz: L/R flips 0 (want 0), swells 4.0 per s" $r
+          grep -q "ombak 4 Hz: L/R flips 0 (want 0), swells .* per s (want about 4: 1)" $r
           grep -q "balinese tunings: 3/3 profiles in place" $r
           grep -q "save compat v0.7: load=1 scale=SEDANG voice5=FLUTE release=55 playmode=0 bpm=66" $r
           # a voice change fades the old voice out rather than cutting it

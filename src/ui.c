@@ -31,8 +31,8 @@
 #define C_CEDARWOOD 0xb26a3e /* the ceiling boards */
 #define C_SLATE 0x4a525e      /* the wordmark */
 #define C_SLATE_D 0x2c323c
-#define HEADER_H 46
-#define BODY_Y 58
+#define HEADER_H 30
+#define BODY_Y 40
 #define FOOTER_Y 456
 
 static void nop(void) {}
@@ -222,20 +222,20 @@ static void cell(int x, int y, int w, int h, int kind, int a, int b)
 
 /* SOUND: per-string tone above, the shared resonance below */
 static const int sound_rows[9] = {SP_NOTE, SP_HARM, SP_BOW, SP_DECAY, SP_BRIGHT, SP_FOLD, SP_STIFF, SP_POS, SP_BUZZ};
-#define SOUND_Y 118
-#define SOUND_RH 29
-#define ENGINE_Y 84
+#define SOUND_Y (BODY_Y + 60)
+#define SOUND_RH 31
+#define ENGINE_Y (BODY_Y + 26)
 #define BAND_Y (SOUND_Y + 9 * SOUND_RH + 4)
 /* COMPOSE: the progression on the left, its controls on the right */
 static const int comp_a[7] = {GP_SCALE, GP_ROOT, GP_MODE, GP_CHANGES, GP_CHANCE, GP_GLIDE, GP_BPM};
 static const int comp_b[7] = {GP_MOTION, GP_HOME, GP_COLOR, GP_EVOLVE, GP_RELATE, GP_DRIFT, GP_SYNC};
 #define COMP_X 268
 #define COMP_CW 184
-#define LFO_Y 318
+#define LFO_Y (BODY_Y + 260)
 /* MIX: a strip per string (with AURA: playing or listening), master, then
  * AURA, delay, reverb and binaural */
-#define MIX_FX_Y 276
-#define MIX_FXC_Y 344
+#define MIX_FX_Y (BODY_Y + 236)
+#define MIX_FXC_Y (BODY_Y + 304)
 #define MIX_FXW 160
 
 static void layout(int pg);
@@ -328,9 +328,9 @@ static void preset_clear(int i)
     slots_read = 0;
 }
 
-#define SLOT_Y 82
-#define PROGT_Y 230
-#define SONGC_Y 304
+#define SLOT_Y (BODY_Y + 24)
+#define PROGT_Y (BODY_Y + 172)
+#define SONGC_Y (BODY_Y + 246)
 
 /* ------------------------------------------------------------- MIDI page
  * Which channel each voice listens on, the keys' channel, velocity,
@@ -377,7 +377,7 @@ static int *m_ref(int b)
 #define MIDI_Y (BODY_Y + 20)
 #define MAP_Y (BODY_Y + 162)
 #define MAP_COLS 3
-#define MAP_ROWS 9
+#define MAP_ROWS ((FOOTER_Y - MAP_Y) / MAP_RH)
 #define MAP_CW 213
 #define MAP_RH 24
 static int map_top; /* the first row of the map shown */
@@ -556,7 +556,7 @@ void ui_midi_load(void)
     int nsp, ngp, nlp, nfx, same = 0, n = 0, maps = -1;
     CcMap m[NCCM];
     if (fgets(ln, sizeof ln, f) && sscanf(ln, "jdmidi 1 %d %d %d %d", &nsp, &ngp, &nlp, &nfx) == 4)
-        same = nsp == NSP && ngp == NGP && nlp == NLP && nfx == NFX; /* the map's numbers mean the same */
+        same = nsp <= NSP && ngp == NGP && nlp == NLP && nfx == NFX; /* the map's numbers mean the same (new string params come last) */
     while (fgets(ln, sizeof ln, f)) {
         int a[5];
         if (sscanf(ln, "vch %d %d %d %d %d", &a[0], &a[1], &a[2], &a[3], &a[4]) == 5)
@@ -656,16 +656,17 @@ static void layout(int pg)
         break;
     case PAGE_MIX:
         for (int s = 0; s < NS; s++) {
-            cell(s * cw + 3, BODY_Y + 42, cw - 6, 31, CK_S, s, SP_LEVEL);
-            cell(s * cw + 3, BODY_Y + 76, cw - 6, 31, CK_S, s, SP_PAN);
-            cell(s * cw + 3, BODY_Y + 110, cw - 6, 31, CK_S, s, latch_on() ? SP_RELEASE : SP_GATE);
-            cell(s * cw + 3, BODY_Y + 144, cw - 6, 31, CK_S, s, SP_LISTEN);
+            cell(s * cw + 3, BODY_Y + 42, cw - 6, 28, CK_S, s, SP_LEVEL);
+            cell(s * cw + 3, BODY_Y + 73, cw - 6, 28, CK_S, s, SP_PAN);
+            cell(s * cw + 3, BODY_Y + 104, cw - 6, 28, CK_S, s, latch_on() ? SP_RELEASE : SP_GATE);
+            cell(s * cw + 3, BODY_Y + 135, cw - 6, 28, CK_S, s, SP_ACCENT); /* how its ring hits stand out */
+            cell(s * cw + 3, BODY_Y + 166, cw - 6, 28, CK_S, s, SP_LISTEN);
         }
-        cell(3, BODY_Y + 180, cw - 6, 31, CK_G, 0, GP_MASTER);
-        cell(cw + 3, BODY_Y + 180, cw - 6, 31, CK_F, 0, FX_SLEVEL);
-        cell(2 * cw + 3, BODY_Y + 180, cw - 6, 31, CK_G, 0, GP_SUB);
-        cell(3 * cw + 3, BODY_Y + 180, cw - 6, 31, CK_G, 0, GP_SUBDIV);
-        cell(4 * cw + 3, BODY_Y + 180, cw - 6, 31, CK_G, 0, GP_SUBRES);
+        cell(3, BODY_Y + 200, cw - 6, 28, CK_G, 0, GP_MASTER);
+        cell(cw + 3, BODY_Y + 200, cw - 6, 28, CK_F, 0, FX_SLEVEL);
+        cell(2 * cw + 3, BODY_Y + 200, cw - 6, 28, CK_G, 0, GP_SUB);
+        cell(3 * cw + 3, BODY_Y + 200, cw - 6, 28, CK_G, 0, GP_SUBDIV);
+        cell(4 * cw + 3, BODY_Y + 200, cw - 6, 28, CK_G, 0, GP_SUBRES);
         /* in the order the sound passes through them: AIR (at the instruments),
          * then delay, reverb and binaural */
         cell(4, MIX_FXC_Y, MIX_FXW - 8, 33, CK_F, 0, FX_AIR);
@@ -768,6 +769,8 @@ static void adjust(int dir, int repeats)
     int *v = cell_ref(c, &d);
     int step = (repeats > 12 && d->max - d->min > 30) ? 4 : 1;
     int nv = clampi(*v + dir * step, d->min, d->max);
+    if (c->kind == CK_S && c->b == SP_RATE) /* the rates, shortest to longest */
+        nv = engine_rate_step(*v, dir);
     if (c->kind == CK_MAP) /* a CC not fixed, and not another entry's */
         for (;;) {
             int used = cc_fixed(nv);
@@ -879,19 +882,20 @@ static int cell_string(void)
 static void ring_show(void)
 {
     const int *P = song.sp[cur_s];
-    static const char *const rn[6] = {"1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BARS"};
+    char rn[16];
+    sparam_format(cur_s, SP_RATE, rn, sizeof rn);
     if (!P[RING_P(ring, 0)])
         say("%d %s OFF%s", cur_s + 1, ring ? "BOW" : "PLUCK", ring ? " (BOW HOLDS)" : "");
     else
         say("%d %s E(%d,%d) >%d %s", cur_s + 1, ring ? "BOW" : "PLUCK", P[RING_P(ring, 2)], P[RING_P(ring, 1)],
-            P[RING_P(ring, 3)], rn[P[SP_RATE]]);
+            P[RING_P(ring, 3)], rn);
 }
 
 static void ring_edit(int field, int dir)
 {
     int *P = song.sp[cur_s];
     if (field == SP_RATE)
-        P[SP_RATE] = clampi(P[SP_RATE] + dir, 0, 5);
+        P[SP_RATE] = engine_rate_step(P[SP_RATE], dir); /* shortest to longest, triplets and all */
     else {
         int id = RING_P(ring, field);
         const ParamDef *d = sparam_def(id);
@@ -1501,45 +1505,45 @@ static void draw_logo_a(float x, float y, float h, float edge, uint32_t fill, ui
     }
 }
 
+/* the header: one thin band, the pages as tabs on the left, the key and
+ * tempo on the right with the beat, Wi-Fi sync and the log beside them */
 static void draw_header(void)
 {
     gfx_fill(0, 0, SCREEN_W, HEADER_H, C_PANEL);
-    /* the roofline: one copper edge across the band */
-    slant(0, HEADER_H - 3, SCREEN_W, HEADER_H - 16, 3, C_COPPER);
-    /* the six pages, as tabs across the left */
-    int x = 10;
+    /* the roofline: one copper edge along the band's foot */
+    slant(0, HEADER_H - 2, SCREEN_W, HEADER_H - 6, 2, C_COPPER);
+    int x = 8;
     for (int p = 0; p < PAGE_COUNT; p++) {
         int w = gfx_text_w(page_names[p], FONT_SMALL) + 16;
-        para(x, 10, w, 24, 6, p == page ? C_COPPER : C_PANEL2);
-        gfx_text(x + 10, 11, page_names[p], p == page ? 0x000000 : C_DIM, FONT_SMALL);
-        x += w + 6;
+        para(x, 3, w, 21, 5, p == page ? C_COPPER : C_PANEL2);
+        gfx_text(x + 9, 2, page_names[p], p == page ? 0x000000 : C_DIM, FONT_SMALL);
+        x += w + 5;
     }
-    /* the key and tempo; left of them the beat, Wi-Fi sync and the log */
     char s[24], nm[8];
     note_name(song.gp[GP_ROOT], nm, sizeof nm);
-    snprintf(s, sizeof s, "%s %d", nm, song.gp[GP_BPM]);
-    int bw = gfx_text_w(s, FONT_LARGE);
-    gfx_text(SCREEN_W - 10 - bw, 4, s, C_SAND, FONT_LARGE);
-    int ix = SCREEN_W - 10 - bw - 30;
+    snprintf(s, sizeof s, "%s  %d BPM", nm, song.gp[GP_BPM]);
+    int bw = gfx_text_w(s, FONT_SMALL);
+    gfx_text(SCREEN_W - 10 - bw, 2, s, C_SAND, FONT_SMALL);
+    int ix = SCREEN_W - 10 - bw - 24;
     if (live.playing) {
         float ph = 1.f - fmodf(now_ms / 1000.f * engine_bpm() / 60.f, 1.f);
-        gfx_disc(ix + 8, 24, 5.f + 4.f * ph * ph, C_SEA);
+        gfx_disc(ix + 8, 13, 4.f + 3.f * ph * ph, C_SEA);
     }
     else
-        gfx_ring(ix + 8, 24, 7.f, 2.f, C_DIM);
-    int lx = ix - 8;
+        gfx_ring(ix + 8, 13, 6.f, 2.f, C_DIM);
+    int lx = ix - 6;
     if (song.gp[GP_SYNC] != SYNC_OFF) {
         const SyncStatus *ss = sync_status();
         int linked = ss->leading || ss->have_leader;
         const char *t = ss->leading ? "LEAD" : ss->have_leader ? "FOLLOW" : "SYNC";
         int w = gfx_text_w(t, FONT_SMALL) + 16;
         lx -= w + 6;
-        para(lx, 12, w, 22, 6, linked ? C_SEA : C_PANEL2);
-        gfx_text(lx + 11, 13, t, linked ? 0x000000 : C_DIM, FONT_SMALL);
+        para(lx, 3, w, 21, 5, linked ? C_SEA : C_PANEL2);
+        gfx_text(lx + 9, 2, t, linked ? 0x000000 : C_DIM, FONT_SMALL);
     }
     if (jdlog_level() != LOG_OFF) {
         lx -= gfx_text_w("LOG", FONT_SMALL) + 10;
-        gfx_text(lx, 13, "LOG", jdlog_level() == LOG_DETAIL ? C_SEA : C_DIM, FONT_SMALL);
+        gfx_text(lx, 2, "LOG", jdlog_level() == LOG_DETAIL ? C_SEA : C_DIM, FONT_SMALL);
     }
 }
 
@@ -1807,8 +1811,8 @@ static void draw_mix(void)
         gfx_fill(pp - 1, my - 4, 3, 13, C_TEXT);
     }
     int mm = (int)(628 * fminf(1.f, live.master_meter));
-    gfx_fill(6, BODY_Y + 214, 628, 3, C_PANEL2);
-    gfx_fill(6, BODY_Y + 214, mm, 3, live.master_meter > 0.95f ? C_RED : C_SEA);
+    gfx_fill(6, BODY_Y + 231, 628, 3, C_PANEL2);
+    gfx_fill(6, BODY_Y + 231, mm, 3, live.master_meter > 0.95f ? C_RED : C_SEA);
 
     /* the panels, left to right: AURA, DELAY, REVERB, BINAURAL (c: which one,
      * 3 being AURA) */
@@ -2272,7 +2276,10 @@ int ui_midi_cc(int ch, int cc, int v)
     c.kind = (char)m->kind, c.a = (char)(m->kind == CK_S ? s : m->a), c.b = (char)m->b;
     const ParamDef *d;
     int *p = cell_ref(&c, &d);
-    set_cell(&c, d, p, d->min + ((d->max - d->min) * v + 63) / 127);
+    if (c.kind == CK_S && c.b == SP_RATE) /* the rates by length, not by number */
+        set_cell(&c, d, p, engine_rate_at(((NRATE - 1) * v + 63) / 127));
+    else
+        set_cell(&c, d, p, d->min + ((d->max - d->min) * v + 63) / 127);
     return 1;
 }
 
@@ -2296,6 +2303,10 @@ void ui_midi_chart(FILE *f)
         c.kind = (char)m->kind, c.b = (char)m->b;
         const ParamDef *d;
         cell_ref(&c, &d);
-        fprintf(f, "| %d | %s%s | %d to %d |\n", m->cc, m->kind == CK_S ? "String " : "", d->name, d->min, d->max);
+        if (m->kind == CK_S && m->b == SP_RATE)
+            fprintf(f, "| %d | String RATE | 1/32 to 2 BARS, shortest to longest (triplets, dotted and quintuple between) |\n",
+                    m->cc);
+        else
+            fprintf(f, "| %d | %s%s | %d to %d |\n", m->cc, m->kind == CK_S ? "String " : "", d->name, d->min, d->max);
     }
 }

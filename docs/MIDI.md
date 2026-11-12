@@ -86,7 +86,7 @@ page's settings are kept in `midi.cfg` in the app folder (they belong to the Bri
 | 107 | String B STEPS | 1 to 16 |
 | 108 | String B PULSES | 1 to 16 |
 | 109 | String B ROTATE | 0 to 15 |
-| 110 | String RATE | 0 to 5 |
+| 110 | String RATE | 1/32 to 2 BARS, shortest to longest (triplets, dotted and quintuple between) |
 | 111 | String P CHANCE | 0 to 100 |
 | 112 | String B CHANCE | 0 to 100 |
 | 113 | PLAY MODE | 0 to 1 |
