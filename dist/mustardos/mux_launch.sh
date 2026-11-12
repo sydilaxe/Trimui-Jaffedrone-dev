@@ -29,7 +29,8 @@ export JD_SCREEN_WAKE="$PWD/wake_screen.sh"
 # the hands off, so: idle_inhibit 1 (no dimming, no muting, no sleep), set again every
 # 2 s as MustardOS's idle watcher clears it when the buttons go quiet, and caffeine (no
 # sleep). Both are given back when Jaffedrone closes. Create no_keep_awake in this folder
-# to leave MustardOS's idle as it is.
+# to leave MustardOS's idle as it is. (The same in Jaffedrone, Columbia Street, HI5, RadioScan
+# and Conduit.)
 INHIBIT() {
     if command -v SET_VAR >/dev/null 2>&1; then
         SET_VAR "system" "idle_inhibit" "$1"

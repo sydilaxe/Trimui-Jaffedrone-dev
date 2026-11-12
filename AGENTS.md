@@ -37,7 +37,8 @@ Latest with a `v<number>...` tag higher than the last, and the package names and
 them must stay as they are, or installed copies stop finding their updates. An update never writes the
 user's files (`*.sav*`, `*.jds`, `*.cfg`, the logs): keep `keep_users` in `update.c` in step with any new
 one. `make update-test` (CI runs it) checks it end to end. `mux_launch.sh` holds MustardOS's idle off while
-the app is open (its Idle Mute would stop the sound two minutes after the last press).
+the app is open (its Idle Mute would stop the sound two minutes after the last press); the block is the
+same in Columbia Street, HI5, RadioScan and Conduit: keep the copies the same.
 
 The log (`src/log.c`, `jaffedrone_log.txt`) and `dist/Jaffedrone/sysinfo.sh` (`sysinfo.txt`) are for
 troubleshooting and tuning on the Brick and Brick Pro. `sysinfo.sh` is shared with HI5 and RadioScan; keep the
