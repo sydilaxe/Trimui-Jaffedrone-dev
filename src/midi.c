@@ -46,14 +46,6 @@ static int can_transport(void) { return can_follow() && !song.gp[GP_MIDISTART]; 
 /* START and STOP out with the clock, unless START OUT is off */
 static int send_transport(void) { return midi_cfg.start_out; }
 
-static const int clkdiv_r[NCLKDIV][2] = {{1, 4}, {1, 3}, {1, 2}, {2, 3}, {1, 1}, {3, 2}, {2, 1}, {3, 1}, {4, 1}};
-static const char *const clkdiv_n[NCLKDIV] = {"1/4", "1/3", "1/2", "2/3", "x1", "3/2", "x2", "x3", "x4"};
-double midi_clkdiv_ratio(int i)
-{
-    i = i < 0 || i >= NCLKDIV ? CLKDIV_X1 : i;
-    return (double)clkdiv_r[i][0] / clkdiv_r[i][1];
-}
-const char *midi_clkdiv_name(int i) { return i < 0 || i >= NCLKDIV ? "?" : clkdiv_n[i]; }
 /* the drone's 16ths a tick in moves it; a tick out moves the clock sent */
 static double in_ratio(void) { return midi_clkdiv_ratio(midi_cfg.in_div); }
 static double out_ratio(void) { return midi_clkdiv_ratio(midi_cfg.out_div); }

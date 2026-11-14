@@ -376,6 +376,16 @@ static const char *const kp_names[NKP] = {"BOTH", "PLUCK", "BOW", "STRIKE"};
 static const char *const kh_names[NKH] = {"SONG", "GATE", "LATCH"};
 static const char *const mt_names[NMT] = {"OFF", "BOW", "TONE", "SWELL", "VIBRATO", "PITCH", "HARM", "FOLD", "BUZZ"};
 const char *midi_target_name(int t) { return t >= 0 && t < NMT ? mt_names[t] : "?"; }
+/* the clock divisions (midi.h), here with the rest of the MIDI page's
+ * settings so every build that has the page has them */
+static const int clkdiv_r[NCLKDIV][2] = {{1, 4}, {1, 3}, {1, 2}, {2, 3}, {1, 1}, {3, 2}, {2, 1}, {3, 1}, {4, 1}};
+static const char *const clkdiv_n[NCLKDIV] = {"1/4", "1/3", "1/2", "2/3", "x1", "3/2", "x2", "x3", "x4"};
+double midi_clkdiv_ratio(int i)
+{
+    i = i < 0 || i >= NCLKDIV ? CLKDIV_X1 : i;
+    return (double)clkdiv_r[i][0] / clkdiv_r[i][1];
+}
+const char *midi_clkdiv_name(int i) { return i < 0 || i >= NCLKDIV ? "?" : clkdiv_n[i]; }
 int midi_channel_voice(int ch)
 {
     for (int s = 0; s < NS; s++)
