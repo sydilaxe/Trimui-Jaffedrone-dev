@@ -38,11 +38,13 @@ static volatile float latency_s = 0.03f;
 
 void midi_set_latency(float seconds) { latency_s = seconds < 0.f ? 0.f : seconds; }
 
-/* the MIX page's MIDI and START settings over launch.sh's JD_MIDI_CLOCK / JD_MIDI_FOLLOW */
+/* the MIDI page's MIDI CLOCK switches over launch.sh's JD_MIDI_CLOCK / JD_MIDI_FOLLOW */
 static int can_follow(void) { return follow && (song.gp[GP_MIDI] == MIDI_AUTO || song.gp[GP_MIDI] == MIDI_FOLLOW); }
 static int can_send(void) { return clock_out && (song.gp[GP_MIDI] == MIDI_AUTO || song.gp[GP_MIDI] == MIDI_SEND); }
 /* START, STOP, CONTINUE and song position too, unless set to the clock only */
 static int can_transport(void) { return can_follow() && !song.gp[GP_MIDISTART]; }
+/* START and STOP out with the clock, unless START OUT is off */
+static int send_transport(void) { return midi_cfg.start_out; }
 
 /* ------------------------------------------------------------- notices */
 
@@ -647,7 +649,7 @@ int midi_clock_step(uint64_t t, uint8_t *out, int max)
     int n = 0;
     int play = live.playing && can_send() && !following;
     if (!play) {
-        if (out_running && n < max)
+        if (out_running && send_transport() && n < max)
             out[n++] = 0xfc;
         out_running = 0;
         return n;
@@ -661,7 +663,7 @@ int midi_clock_step(uint64_t t, uint8_t *out, int max)
         out_est = heard;
         out_sent = (int64_t)floor(heard * 6.0);
         out_t = t;
-        if (n < max)
+        if (send_transport() && n < max)
             out[n++] = 0xfa;
         return n;
     }
@@ -904,7 +906,7 @@ static void *loop(void *arg)
             send_links(pos, n);
     }
     uint8_t stop = 0xfc;
-    if (out_running)
+    if (out_running && send_transport())
         send_all(&stop, 1);
     for (int i = 0; i < nports; i++)
         close(ports[i].fd);

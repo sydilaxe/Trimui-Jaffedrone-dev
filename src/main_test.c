@@ -2572,6 +2572,65 @@ int main(int argc, char **argv)
                abs(ticks_out - 192) <= 1, stops);
         midi_reset();
 
+        /* START OUT off: the clock alone, no START or STOP */
+        {
+            song_default();
+            song.gp[GP_BPM] = 120;
+            engine_init(RATE);
+            engine_set_playing(1);
+            midi_reset();
+            midi_cfg.start_out = 0;
+            int tk = 0, ss = 0;
+            for (int i = 0; i < 100; i++) {
+                engine_render(pcm, RATE / 100);
+                t += 10000;
+                int k = midi_clock_step(t, out, sizeof out);
+                for (int j = 0; j < k; j++)
+                    tk += out[j] == 0xf8, ss += out[j] == 0xfa || out[j] == 0xfc;
+            }
+            engine_set_playing(0);
+            int k = midi_clock_step(t + 10000, out, sizeof out);
+            for (int j = 0; j < k; j++)
+                ss += out[j] == 0xfa || out[j] == 0xfc;
+            midi_cfg.start_out = 1;
+            midi_reset();
+            printf("midi start out off: %d ticks, %d START / STOP (want ticks, none: %d)\n", tk, ss, tk > 40 && !ss);
+        }
+
+        /* the MIDI page's MIDI CLOCK row: four switches, Y off and X on */
+        {
+            song_default();
+            for (int i = 0; i < PAGE_COUNT && ui_page() != PAGE_MIDI; i++)
+                press(BTN_R1);
+            for (int i = 0; i < 4; i++)
+                press(BTN_UP);
+            for (int i = 0; i < 6; i++)
+                press(BTN_LEFT);
+            for (int i = 0; i < 3; i++)
+                press(BTN_DOWN);
+            int g[5][3];
+            press(BTN_Y); /* CLOCK IN off */
+            g[0][0] = song.gp[GP_MIDI];
+            press(BTN_RIGHT), press(BTN_Y); /* CLOCK OUT off */
+            g[1][0] = song.gp[GP_MIDI];
+            press(BTN_LEFT), press(BTN_X); /* CLOCK IN on again: in only */
+            g[2][0] = song.gp[GP_MIDI];
+            press(BTN_RIGHT), press(BTN_RIGHT), press(BTN_Y); /* START IN off */
+            g[3][0] = song.gp[GP_MIDISTART];
+            press(BTN_RIGHT), press(BTN_Y); /* START OUT off */
+            g[4][0] = midi_cfg.start_out;
+            int ok = ui_page() == PAGE_MIDI && g[0][0] == MIDI_SEND && g[1][0] == MIDI_OFF && g[2][0] == MIDI_FOLLOW &&
+                     g[3][0] == 1 && g[4][0] == 0;
+            shot(test_dir, "midi_clock", fb);
+            press(BTN_X), press(BTN_LEFT), press(BTN_X), press(BTN_LEFT), press(BTN_X);
+            ok &= song.gp[GP_MIDI] == MIDI_AUTO && song.gp[GP_MIDISTART] == 0 && midi_cfg.start_out == 1;
+            for (int i = 0; i < 6; i++)
+                press(BTN_UP);
+            printf("midi clock switches: CLOCK IN off -> SEND, CLOCK OUT off -> OFF, CLOCK IN on -> FOLLOW, START IN "
+                   "off -> IGNORE, START OUT off, and all on again (1: %d)\n", ok);
+            song_default();
+        }
+
     /* ---- the SONG page's MIDI setting: AUTO follows a clock coming in and
      * sends one, SEND only sends (and ignores one coming in), FOLLOW only
      * follows, OFF neither; the setting cycles on the page with X */

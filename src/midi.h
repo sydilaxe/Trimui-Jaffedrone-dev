@@ -28,14 +28,15 @@
  *   clock          the tempo follows it (fitted over the last four beats of
  *                  ticks), its phase held on the audio clock; START,
  *                  CONTINUE, STOP and song position start, stop and place
- *                  the drone (not with START set to IGNORE)
- * Out, to every port: clock (24 a quarter note), START and STOP, while the
- * drone plays and no clock is coming in. The clock goes out as the sound is
- * heard (the audio clock).
+ *                  the drone (not with START IN off)
+ * Out, to every port: clock (24 a quarter note), START and STOP (not with
+ * START OUT off), while the drone plays and no clock is coming in. The clock
+ * goes out as the sound is heard (the audio clock).
  *
- * Which way the clock goes is the MIX page's MIDI setting (GP_MIDI: AUTO as
- * above, SEND always, FOLLOW only, OFF neither). Bricks also follow one
- * another over USB through a hub (link.h).
+ * The MIDI page's MIDI CLOCK row switches each way: CLOCK IN and CLOCK OUT
+ * (GP_MIDI: both on AUTO, out only SEND, in only FOLLOW, neither OFF), START
+ * IN (GP_MIDISTART: on FOLLOW, off IGNORE) and START OUT (midi_cfg). Bricks
+ * also follow one another over USB through a hub (link.h).
  * Settings, in launch.sh: JD_MIDI=0 turns it off, JD_MIDI_NOTES=CHANNELS
  * gives voices 1-5 channels 1-5 (unless the MIDI page has set channels),
  * JD_MIDI_CLOCK=0 never sends clock, JD_MIDI_FOLLOW=0 never follows it. */
@@ -64,6 +65,7 @@ typedef struct {
     int shift;         /* semitones added to every key */
     int snap;          /* 1: keys move to the nearest note of the song's scale */
     int poly;          /* the most keys a voice plays at once (1: one, the last) */
+    int start_out;     /* START OUT: 1 sends START and STOP with the clock, 0 the clock alone */
 } MidiCfg;
 extern MidiCfg midi_cfg;
 const char *midi_target_name(int t);

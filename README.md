@@ -369,11 +369,11 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
 - **SONG:** ten presets, the chord memory, key lock and mode, and the drone's attack and release.
 - **MIX:** each string's level, pan, gate, accent and AURA with a meter, master, the sympathetic strings' level, the
   undertones (SUB, SUB DIV, SUB RES), then delay,
-  reverb and binaural. Under AURA: the MIDI clock's **MIDI** and **START** settings (see
-  [USB: MIDI and audio](#usb-midi-and-audio)).
+  reverb and binaural.
 - **MIDI:** which channel each voice listens on, how the keys play (their channel, velocity, what
   aftertouch and the mod wheel move, the bend range, pluck or bow, hold or latch, shift, snap to the scale,
-  how many at once) and the CC map, with MIDI learn (see
+  how many at once), the MIDI clock switches (CLOCK IN, CLOCK OUT, START IN, START OUT) and the CC map,
+  with MIDI learn (see
   [USB: MIDI and audio](#usb-midi-and-audio)).
 
 ## Song: presets, chord memory, key
@@ -549,21 +549,24 @@ are found as they are plugged in, and a message names each one.
   map lists every CC: **A** learns an entry's CC again, **Y / X** change it by hand, **R2 + Y** forgets it.
   CCs 1, 64, 74, 91, 120 and 123 are fixed. The MIDI page's settings and map belong to the Brick, not the
   song: they are kept in `midi.cfg` in the app folder.
-- **Clock** (MIDI set to AUTO or FOLLOW): the tempo follows it (a straight line through the last four beats
+- **Clock** (CLOCK IN on): the tempo follows it (a straight line through the last four beats
   of ticks, so USB's jitter averages out), and its phase is held on the sound as it is heard by trimming the
   playback speed, as Wi-Fi sync does. START, CONTINUE, STOP and song position start, stop and place the
-  drone, unless START is set to IGNORE.
+  drone, unless START IN is off.
 
-**MIDI out:** while the drone plays and no clock is coming in (AUTO), or always (SEND), Jaffedrone sends
-clock (24 a quarter note), START and STOP to every port. The clock is timed to the sound as it is heard
+**MIDI out:** while the drone plays and no clock is coming in (CLOCK IN on), or always (CLOCK IN off),
+Jaffedrone sends clock (24 a quarter note), START and STOP to every port (with CLOCK OUT on; START OUT off
+sends the clock alone). The clock is timed to the sound as it is heard
 (the audio clock, through whichever output plays it), so a drum machine lands on the drone's beat.
 
-**MIDI and START on MIX** (under AURA): **MIDI** picks which way the clock goes: **AUTO** (the default)
-sends it and follows a clock that comes in instead, **SEND** always sends it and ignores one coming in,
-**FOLLOW** only follows, **OFF** neither (notes and CCs still come in). **START** FOLLOW (the default) starts
-and stops with the clock; **IGNORE** keeps its tempo only, so you start and stop the drone yourself. Both
-belong to the Brick, like WIFI SYNC: loading a preset keeps them. `JD_MIDI_CLOCK=0` / `JD_MIDI_FOLLOW=0` in
-`launch.sh` never send / follow clock, whatever MIDI is set to.
+**MIDI CLOCK on the MIDI page:** four switches, each ON (the default) or OFF. **CLOCK IN** follows a
+clock that comes in (with CLOCK OUT on too, it sends its own until one comes in); off, an incoming clock is
+ignored. **CLOCK OUT** sends clock; off, none goes out. **START IN** starts, stops and places the drone
+with the clock's START, STOP, CONTINUE and song position; off, it keeps the clock's tempo only, so you start
+and stop the drone yourself. **START OUT** sends START and STOP with the clock; off, the clock goes out
+alone, for gear you start by hand. Notes and CCs come in whatever they are set to. They belong to the
+Brick, like WIFI SYNC: loading a preset keeps them. `JD_MIDI_CLOCK=0` / `JD_MIDI_FOLLOW=0` in
+`launch.sh` never send / follow clock, whatever the switches say.
 
 **Linking Bricks:** several Bricks play in time with one by cable, with no MIDI interface between them: the
 **leader** has a powered USB hub in its **top** port, and each **follower** plugs its **bottom** (charging)
@@ -573,7 +576,7 @@ MIDI devices and Bricks on the leader together). Nothing to set up: Jaffedrone o
 a second and sends them its clock with START and STOP, plus where its sound is about 50 times a second.
 Each follower moves its own sound onto that, measured by its audio clock, so they sound together within a
 tenth of a millisecond, at any tempo up to 250 BPM. A follower plugged in mid-song comes in at the leader's
-place; one set to START IGNORE keeps the leader's tempo and bar but is started and stopped by hand.
+place; one with START IN off keeps the leader's tempo and bar but is started and stopped by hand.
 Columbia Street, HI5 and RadioScan link the same way, so a Brick running any of them can lead. The leader
 can use USB audio and MIDI gear on the same hub, and one that follows a drum machine's clock passes it on.
 `JD_LINK=0` in `launch.sh` leaves the bottom port alone.
