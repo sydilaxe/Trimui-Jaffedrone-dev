@@ -372,7 +372,7 @@ The strings are not re-plucked on a change. They keep ringing and slide to the n
   reverb and binaural.
 - **MIDI:** which channel each voice listens on, how the keys play (their channel, velocity, what
   aftertouch and the mod wheel move, the bend range, pluck or bow, hold or latch, shift, snap to the scale,
-  how many at once), the MIDI clock switches (CLOCK IN, CLOCK OUT, START IN, START OUT) and the CC map,
+  how many at once), the MIDI clock (CLOCK IN, CLOCK OUT, START IN, START OUT, IN DIV, OUT DIV) and the CC map,
   with MIDI learn (see
   [USB: MIDI and audio](#usb-midi-and-audio)).
 
@@ -559,13 +559,17 @@ Jaffedrone sends clock (24 a quarter note), START and STOP to every port (with C
 sends the clock alone). The clock is timed to the sound as it is heard
 (the audio clock, through whichever output plays it), so a drum machine lands on the drone's beat.
 
-**MIDI CLOCK on the MIDI page:** four switches, each ON (the default) or OFF. **CLOCK IN** follows a
+**MIDI CLOCK on the MIDI page:** two rows, in over out: four switches, each ON (the default) or OFF,
+and two divisions. **CLOCK IN** follows a
 clock that comes in (with CLOCK OUT on too, it sends its own until one comes in); off, an incoming clock is
 ignored. **CLOCK OUT** sends clock; off, none goes out. **START IN** starts, stops and places the drone
 with the clock's START, STOP, CONTINUE and song position; off, it keeps the clock's tempo only, so you start
 and stop the drone yourself. **START OUT** sends START and STOP with the clock; off, the clock goes out
-alone, for gear you start by hand. Notes and CCs come in whatever they are set to. They belong to the
-Brick, like WIFI SYNC: loading a preset keeps them. `JD_MIDI_CLOCK=0` / `JD_MIDI_FOLLOW=0` in
+alone, for gear you start by hand. **IN DIV** runs the drone at a ratio of the clock that comes in (1/4,
+1/3, 1/2, 2/3, x1, 3/2, x2, x3, x4: at 1/2 a drum machine at 120 drives the drone at 60, half time) and
+**OUT DIV** sends a clock at a ratio of the drone's tempo (x2: gear runs double time); x1 is the tempo
+itself. The Brick link keeps the leader's own tempo whatever IN DIV says. Notes and CCs come in whatever
+these are set to. They belong to the Brick, like WIFI SYNC: loading a preset keeps them. `JD_MIDI_CLOCK=0` / `JD_MIDI_FOLLOW=0` in
 `launch.sh` never send / follow clock, whatever the switches say.
 
 **Linking Bricks:** several Bricks play in time with one by cable, with no MIDI interface between them: the

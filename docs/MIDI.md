@@ -21,7 +21,7 @@ from any page.
 | System exclusive | yes | yes | Only the Brick link's position (`F0 7D 'T' 'L' ... F7`, 14 bytes, about 50 a second, to linked Bricks only); others pass by. |
 | Song position | none | yes | Places the drone (not with START IN off). |
 | Song select | none | no | |
-| Clock | yes | yes | Out (CLOCK OUT on): 24 a quarter note while the drone plays and no clock comes in, sent as the sound is heard. In (CLOCK IN on): the tempo follows it, and its phase is held. CLOCK IN and CLOCK OUT are the MIDI page's MIDI CLOCK switches. `JD_MIDI_CLOCK=0` sends none; `JD_MIDI_FOLLOW=0` ignores it. |
+| Clock | yes | yes | Out (CLOCK OUT on): 24 a quarter note while the drone plays and no clock comes in, sent as the sound is heard. In (CLOCK IN on): the tempo follows it, and its phase is held. CLOCK IN and CLOCK OUT are the MIDI page's MIDI CLOCK switches; IN DIV runs the drone at a ratio of the clock coming in (1/4 to x4; 1/2 is half time), OUT DIV sends one at a ratio of the drone's tempo. `JD_MIDI_CLOCK=0` sends none; `JD_MIDI_FOLLOW=0` ignores it. |
 | Start, Continue, Stop | yes | yes | Out: Start and Stop with the drone, unless START OUT is off (then the clock alone). In: they start, continue and stop it, unless START IN is off (then the clock's tempo only). |
 | Active sensing | none | no | |
 | All notes off (123), all sound off (120) | none | yes | Everything let go. |

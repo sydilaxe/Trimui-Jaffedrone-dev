@@ -371,7 +371,7 @@ static void preset_clear(int i)
  * for each CC, the defaults below or learned (START + B on any control,
  * then move a knob). All of it belongs to the Brick: kept in midi.cfg, not
  * in songs or presets. */
-MidiCfg midi_cfg = {{0, 0, 0, 0, 0}, 0, 100, MT_BOW, MT_BOW, 2, KP_BOTH, KH_SONG, 0, 0, 4, 1};
+MidiCfg midi_cfg = {{0, 0, 0, 0, 0}, 0, 100, MT_BOW, MT_BOW, 2, KP_BOTH, KH_SONG, 0, 0, 4, 1, CLKDIV_X1, CLKDIV_X1};
 static const char *const kp_names[NKP] = {"BOTH", "PLUCK", "BOW", "STRIKE"};
 static const char *const kh_names[NKH] = {"SONG", "GATE", "LATCH"};
 static const char *const mt_names[NMT] = {"OFF", "BOW", "TONE", "SWELL", "VIBRATO", "PITCH", "HARM", "FOLD", "BUZZ"};
@@ -386,17 +386,18 @@ int midi_channel_voice(int ch)
     return -1;
 }
 
-/* the MIDI CLOCK row: each way switched on its own. CLOCK IN and CLOCK OUT
- * are GP_MIDI's two halves, START IN is GP_MIDISTART (kept in the song, and
- * kept when a preset loads); START OUT is the Brick's, in midi.cfg. */
+/* the MIDI CLOCK rows, in above out: each way switched on its own, and its
+ * division. CLOCK IN and CLOCK OUT are GP_MIDI's two halves, START IN is
+ * GP_MIDISTART (kept in the song, and kept when a preset loads); START OUT,
+ * IN DIV and OUT DIV are the Brick's, in midi.cfg. */
 enum { M_VCH, M_KEYS = M_VCH + NS, M_VEL, M_AT, M_MOD, M_BEND, M_PLAY, M_HOLD, M_SHIFT, M_SNAP, M_POLY,
-       M_CLKIN, M_CLKOUT, M_STARTIN, M_STARTOUT, NM };
+       M_CLKIN, M_STARTIN, M_INDIV, M_CLKOUT, M_STARTOUT, M_OUTDIV, NM };
 static const ParamDef m_defs[NM] = {{"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16}, {"CH", 0, 16},
                                     {"KEYS", 0, 16}, {"VEL", 0, 100}, {"TOUCH", 0, NMT - 1},
                                     {"MOD", 0, NMT - 1}, {"BEND", 1, 24}, {"PLAY", 0, NKP - 1},
                                     {"HOLD", 0, NKH - 1}, {"SHIFT", -24, 24}, {"SNAP", 0, 1}, {"POLY", 1, 4},
-                                    {"CLOCK IN", 0, 1}, {"CLOCK OUT", 0, 1}, {"START IN", 0, 1},
-                                    {"START OUT", 0, 1}};
+                                    {"CLOCK IN", 0, 1}, {"START IN", 0, 1}, {"IN DIV", 0, NCLKDIV - 1},
+                                    {"CLOCK OUT", 0, 1}, {"START OUT", 0, 1}, {"OUT DIV", 0, NCLKDIV - 1}};
 static int clk_in(void) { return song.gp[GP_MIDI] == MIDI_AUTO || song.gp[GP_MIDI] == MIDI_FOLLOW; }
 static int clk_out(void) { return song.gp[GP_MIDI] == MIDI_AUTO || song.gp[GP_MIDI] == MIDI_SEND; }
 static void set_clk(int in, int out)
@@ -411,6 +412,8 @@ static int *m_ref(int b)
     case M_CLKOUT: clk_v = clk_out(); return &clk_v;
     case M_STARTIN: clk_v = !song.gp[GP_MIDISTART]; return &clk_v;
     case M_STARTOUT: return &midi_cfg.start_out;
+    case M_INDIV: return &midi_cfg.in_div;
+    case M_OUTDIV: return &midi_cfg.out_div;
     case M_KEYS: return &midi_cfg.keys_ch;
     case M_VEL: return &midi_cfg.vel;
     case M_AT: return &midi_cfg.at_to;
@@ -425,8 +428,8 @@ static int *m_ref(int b)
     }
 }
 #define MIDI_Y (BODY_Y + 20)
-#define CLK_Y (MIDI_Y + 138) /* the MIDI CLOCK row */
-#define MAP_Y (BODY_Y + 218)
+#define CLK_Y (MIDI_Y + 138) /* the MIDI CLOCK rows */
+#define MAP_Y (BODY_Y + 252)
 #define MAP_COLS 3
 #define MAP_ROWS ((FOOTER_Y - MAP_Y) / MAP_RH)
 #define MAP_CW 213
@@ -588,9 +591,9 @@ static void midi_save(void)
     fprintf(f, "vch");
     for (int s = 0; s < NS; s++)
         fprintf(f, " %d", midi_cfg.vch[s]);
-    fprintf(f, "\nkeys %d\nvel %d\nat %d\nmod %d\nbend %d\nplay %d\nhold %d\nshift %d\nsnap %d\npoly %d\nstartout %d\nmaps %d\n",
+    fprintf(f, "\nkeys %d\nvel %d\nat %d\nmod %d\nbend %d\nplay %d\nhold %d\nshift %d\nsnap %d\npoly %d\nstartout %d\nindiv %d\noutdiv %d\nmaps %d\n",
             midi_cfg.keys_ch, midi_cfg.vel, midi_cfg.at_to, midi_cfg.mod_to, midi_cfg.bend, midi_cfg.play, midi_cfg.hold,
-            midi_cfg.shift, midi_cfg.snap, midi_cfg.poly, midi_cfg.start_out, nccm);
+            midi_cfg.shift, midi_cfg.snap, midi_cfg.poly, midi_cfg.start_out, midi_cfg.in_div, midi_cfg.out_div, nccm);
     for (int i = 0; i < nccm; i++)
         fprintf(f, "map %d %d %d %d\n", ccm[i].cc, ccm[i].kind, ccm[i].a, ccm[i].b);
     fclose(f);
@@ -635,6 +638,10 @@ void ui_midi_load(void)
             midi_cfg.poly = clampi(a[0], 1, 4);
         else if (sscanf(ln, "startout %d", &a[0]) == 1)
             midi_cfg.start_out = clampi(a[0], 0, 1);
+        else if (sscanf(ln, "indiv %d", &a[0]) == 1)
+            midi_cfg.in_div = clampi(a[0], 0, NCLKDIV - 1);
+        else if (sscanf(ln, "outdiv %d", &a[0]) == 1)
+            midi_cfg.out_div = clampi(a[0], 0, NCLKDIV - 1);
         else if (sscanf(ln, "maps %d", &a[0]) == 1)
             maps = a[0];
         else if (same && n < NCCM && sscanf(ln, "map %d %d %d %d", &a[0], &a[1], &a[2], &a[3]) == 4 && a[0] >= 0 &&
@@ -698,8 +705,8 @@ static void layout(int pg)
             cell(i * cw + 3, MIDI_Y + 52, cw - 6, 31, CK_M, 0, M_KEYS + i);
         for (int i = 0; i < 5; i++)
             cell(i * cw + 3, MIDI_Y + 86, cw - 6, 31, CK_M, 0, M_PLAY + i);
-        for (int i = 0; i < 4; i++)
-            cell(3 + i * 160, CLK_Y, 154, 31, CK_M, 0, M_CLKIN + i);
+        for (int i = 0; i < 6; i++)
+            cell(3 + (i % 3) * 213, CLK_Y + (i / 3) * 34, 207, 31, CK_M, 0, M_CLKIN + i);
         ccm_ready();
         if (map_top > 0 && map_top * MAP_COLS >= nccm)
             map_top = nccm > 0 ? (nccm - 1) / MAP_COLS : 0;
@@ -768,6 +775,8 @@ static void cell_format(const Cell *c, char *v, int n)
             snprintf(v, n, x > 0 ? "+%d" : "%d", x);
         else if (c->b == M_SNAP)
             snprintf(v, n, "%s", x ? "SCALE" : "OFF");
+        else if (c->b == M_INDIV || c->b == M_OUTDIV)
+            snprintf(v, n, "%s", midi_clkdiv_name(x));
         else if (c->b >= M_CLKIN)
             snprintf(v, n, "%s", x ? "ON" : "OFF");
         else
@@ -896,6 +905,12 @@ static void set_cell(const Cell *c, const ParamDef *d, int *v, int nv)
         }
         if (c->kind == CK_M && c->b == M_STARTOUT)
             say("%s", nv ? "START OUT: START AND STOP SENT WITH THE CLOCK" : "START OUT OFF: THE CLOCK ALONE");
+        if (c->kind == CK_M && (c->b == M_INDIV || c->b == M_OUTDIV)) {
+            double r = midi_clkdiv_ratio(nv);
+            say("%s %s: %s", c->b == M_INDIV ? "IN" : "OUT", midi_clkdiv_name(nv),
+                r == 1.0 ? "AT THE TEMPO" : r < 1.0 ? (c->b == M_INDIV ? "SLOWER THAN THE CLOCK" : "SLOWER THAN THE DRONE")
+                                                    : (c->b == M_INDIV ? "FASTER THAN THE CLOCK" : "FASTER THAN THE DRONE"));
+        }
         return;
     }
     if (song.gp[GP_KEYLOCK] && c->kind == CK_G && (c->b == GP_SCALE || c->b == GP_ROOT || c->b == GP_MODALITY)) {

@@ -2597,7 +2597,8 @@ int main(int argc, char **argv)
             printf("midi start out off: %d ticks, %d START / STOP (want ticks, none: %d)\n", tk, ss, tk > 40 && !ss);
         }
 
-        /* the MIDI page's MIDI CLOCK row: four switches, Y off and X on */
+        /* the MIDI page's MIDI CLOCK rows: CLOCK IN, START IN, IN DIV over
+         * CLOCK OUT, START OUT, OUT DIV; Y down / off, X up / on */
         {
             song_default();
             for (int i = 0; i < PAGE_COUNT && ui_page() != PAGE_MIDI; i++)
@@ -2608,27 +2609,81 @@ int main(int argc, char **argv)
                 press(BTN_LEFT);
             for (int i = 0; i < 3; i++)
                 press(BTN_DOWN);
-            int g[5][3];
+            int g[7];
             press(BTN_Y); /* CLOCK IN off */
-            g[0][0] = song.gp[GP_MIDI];
-            press(BTN_RIGHT), press(BTN_Y); /* CLOCK OUT off */
-            g[1][0] = song.gp[GP_MIDI];
-            press(BTN_LEFT), press(BTN_X); /* CLOCK IN on again: in only */
-            g[2][0] = song.gp[GP_MIDI];
-            press(BTN_RIGHT), press(BTN_RIGHT), press(BTN_Y); /* START IN off */
-            g[3][0] = song.gp[GP_MIDISTART];
-            press(BTN_RIGHT), press(BTN_Y); /* START OUT off */
-            g[4][0] = midi_cfg.start_out;
-            int ok = ui_page() == PAGE_MIDI && g[0][0] == MIDI_SEND && g[1][0] == MIDI_OFF && g[2][0] == MIDI_FOLLOW &&
-                     g[3][0] == 1 && g[4][0] == 0;
+            g[0] = song.gp[GP_MIDI];
+            press(BTN_DOWN), press(BTN_Y); /* CLOCK OUT off */
+            g[1] = song.gp[GP_MIDI];
+            press(BTN_UP), press(BTN_X); /* CLOCK IN on again: in only */
+            g[2] = song.gp[GP_MIDI];
+            press(BTN_RIGHT), press(BTN_Y); /* START IN off */
+            g[3] = song.gp[GP_MIDISTART];
+            press(BTN_DOWN), press(BTN_Y); /* START OUT off */
+            g[4] = midi_cfg.start_out;
+            press(BTN_RIGHT), press(BTN_X), press(BTN_X); /* OUT DIV x2 */
+            g[5] = midi_cfg.out_div;
+            press(BTN_UP), press(BTN_Y), press(BTN_Y); /* IN DIV 1/2 */
+            g[6] = midi_cfg.in_div;
+            int ok = ui_page() == PAGE_MIDI && g[0] == MIDI_SEND && g[1] == MIDI_OFF && g[2] == MIDI_FOLLOW &&
+                     g[3] == 1 && g[4] == 0 && g[5] == CLKDIV_X2 && g[6] == CLKDIV_HALF;
             shot(test_dir, "midi_clock", fb);
-            press(BTN_X), press(BTN_LEFT), press(BTN_X), press(BTN_LEFT), press(BTN_X);
-            ok &= song.gp[GP_MIDI] == MIDI_AUTO && song.gp[GP_MIDISTART] == 0 && midi_cfg.start_out == 1;
+            press(BTN_X), press(BTN_X);                    /* IN DIV x1 */
+            press(BTN_DOWN), press(BTN_Y), press(BTN_Y);   /* OUT DIV x1 */
+            press(BTN_LEFT), press(BTN_X);                 /* START OUT on */
+            press(BTN_UP), press(BTN_X);                   /* START IN on */
+            press(BTN_LEFT), press(BTN_DOWN), press(BTN_X); /* CLOCK OUT on */
+            ok &= song.gp[GP_MIDI] == MIDI_AUTO && song.gp[GP_MIDISTART] == 0 && midi_cfg.start_out == 1 &&
+                  midi_cfg.in_div == CLKDIV_X1 && midi_cfg.out_div == CLKDIV_X1;
             for (int i = 0; i < 6; i++)
                 press(BTN_UP);
             printf("midi clock switches: CLOCK IN off -> SEND, CLOCK OUT off -> OFF, CLOCK IN on -> FOLLOW, START IN "
-                   "off -> IGNORE, START OUT off, and all on again (1: %d)\n", ok);
+                   "off -> IGNORE, START OUT off, OUT DIV x2, IN DIV 1/2, and all back (1: %d)\n", ok);
             song_default();
+        }
+
+        /* the divisions: OUT DIV x2 sends twice the ticks; IN DIV 1/2 follows
+         * a 120 BPM clock at 60, its phase held at half the clock's count */
+        {
+            song_default();
+            song.gp[GP_BPM] = 120;
+            engine_init(RATE);
+            engine_set_playing(1);
+            midi_reset();
+            midi_cfg.out_div = CLKDIV_X2;
+            int tk = 0;
+            for (int i = 0; i < 400; i++) {
+                engine_render(pcm, RATE / 100);
+                t += 10000;
+                int k = midi_clock_step(t, out, sizeof out);
+                for (int j = 0; j < k; j++)
+                    tk += out[j] == 0xf8;
+            }
+            engine_set_playing(0);
+            midi_clock_step(t + 10000, out, sizeof out);
+            midi_cfg.out_div = CLKDIV_X1;
+
+            song_default();
+            engine_init(RATE);
+            engine_set_playing(0);
+            midi_reset();
+            midi_set_latency(0.f);
+            midi_cfg.in_div = CLKDIV_HALF;
+            midi_feed(&start, 1, t);
+            double perr = 0.0;
+            for (int i = 0; i < 24 * 16; i++) { /* 16 beats of the clock at 120 BPM */
+                t += 20833;
+                midi_feed(&tick, 1, t);
+                engine_render(pcm, 1000);
+            }
+            /* 384 ticks at half time: 32 of the drone's 16ths, less what is in the pipe */
+            perr = fabs(fmod(engine_position() - 32.0 + 8.0, 16.0) - 8.0);
+            float half = engine_bpm();
+            midi_feed(&stop, 1, t);
+            midi_cfg.in_div = CLKDIV_X1;
+            midi_reset();
+            printf("midi clock divisions: OUT x2 %d ticks in 4 s at 120 BPM (want 384: %d); IN 1/2 a 120 BPM clock -> "
+                   "%.1f BPM, %.2f 16ths off (want 60, under 1: %d)\n",
+                   tk, abs(tk - 384) <= 2, half, perr, fabsf(half - 60.f) < 0.5f && perr < 1.0);
         }
 
     /* ---- the SONG page's MIDI setting: AUTO follows a clock coming in and

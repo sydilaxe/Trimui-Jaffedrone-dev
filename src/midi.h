@@ -35,8 +35,11 @@
  *
  * The MIDI page's MIDI CLOCK row switches each way: CLOCK IN and CLOCK OUT
  * (GP_MIDI: both on AUTO, out only SEND, in only FOLLOW, neither OFF), START
- * IN (GP_MIDISTART: on FOLLOW, off IGNORE) and START OUT (midi_cfg). Bricks
- * also follow one another over USB through a hub (link.h).
+ * IN (GP_MIDISTART: on FOLLOW, off IGNORE) and START OUT (midi_cfg), with
+ * IN DIV and OUT DIV (midi_cfg): the drone follows a clock at a ratio of its
+ * tempo (1/2: half time), and sends one at a ratio of its own (x2: double
+ * time). Bricks also follow one another over USB through a hub (link.h), at
+ * their own tempo whatever IN DIV says.
  * Settings, in launch.sh: JD_MIDI=0 turns it off, JD_MIDI_NOTES=CHANNELS
  * gives voices 1-5 channels 1-5 (unless the MIDI page has set channels),
  * JD_MIDI_CLOCK=0 never sends clock, JD_MIDI_FOLLOW=0 never follows it. */
@@ -66,7 +69,14 @@ typedef struct {
     int snap;          /* 1: keys move to the nearest note of the song's scale */
     int poly;          /* the most keys a voice plays at once (1: one, the last) */
     int start_out;     /* START OUT: 1 sends START and STOP with the clock, 0 the clock alone */
+    int in_div;        /* IN DIV: the drone's tempo is the clock's times this ratio (CLKDIV_) */
+    int out_div;       /* OUT DIV: the clock sent is the drone's tempo times this ratio */
 } MidiCfg;
+/* the clock divisions, as ratios to the tempo: 1/4 a quarter as fast (four
+ * times as slow) .. x4 four times as fast; CLKDIV_X1 the tempo itself */
+enum { CLKDIV_4TH, CLKDIV_3RD, CLKDIV_HALF, CLKDIV_2_3, CLKDIV_X1, CLKDIV_3_2, CLKDIV_X2, CLKDIV_X3, CLKDIV_X4, NCLKDIV };
+double midi_clkdiv_ratio(int i);
+const char *midi_clkdiv_name(int i);
 extern MidiCfg midi_cfg;
 const char *midi_target_name(int t);
 int midi_channel_voice(int ch); /* the voice channel ch (0-15) plays: its own, the selected one, or -1 */

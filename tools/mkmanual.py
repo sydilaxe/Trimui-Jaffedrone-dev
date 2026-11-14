@@ -663,6 +663,8 @@ def build(out):
                  ("START IN", "ON starts, stops and places the drone with the clock's START, STOP, CONTINUE "
                               "and song position; OFF keeps the clock's tempo only, so you start and stop it"),
                  ("START OUT", "ON sends START and STOP with the clock; OFF sends the clock alone"),
+                 ("IN DIV", "the drone at a ratio of the clock coming in, 1/4 to x4 (1/2: half time)"),
+                 ("OUT DIV", "the clock sent at a ratio of the drone's tempo, 1/4 to x4 (x2: double time)"),
                  ("CC MAP", "each CC and what it sets. Select any control on SOUND, COMPOSE, MIX or SONG, "
                             "press " + B("START") + " + " + B("B") + " and move a knob: that CC now sets it. A "
                             "voice's control moves the voice of the channel the CC comes on (the selected one "
@@ -692,7 +694,7 @@ def build(out):
           Paragraph("MIDI out", H2),
           Paragraph("While the drone plays, and no clock is coming in, Jaffedrone sends MIDI clock (24 a "
                     "quarter note) with START and STOP to every MIDI port, timed to the sound as it is heard "
-                    "(the MIDI CLOCK switches, below, turn each off). "
+                    "(the MIDI CLOCK switches, below, turn each off; OUT DIV sends it faster or slower). "
                     "It leads a drum machine or sequencer over USB as MONO+CLK does over the headphone jack.", P),
           Paragraph("MIDI CLOCK (on the MIDI page)", H2),
           table([("CLOCK IN", "ON (the default) follows a clock that comes in; OFF ignores it (notes and CCs "
@@ -703,7 +705,12 @@ def build(out):
                               "STOP, CONTINUE and song position; OFF follows the clock's tempo only, so you "
                               "start and stop it yourself"),
                  ("START OUT", "ON (the default) sends START and STOP with the clock; OFF sends the clock "
-                               "alone, for gear you start by hand")], widths=(34 * mm, None)),
+                               "alone, for gear you start by hand"),
+                 ("IN DIV", "the drone's tempo as a ratio of the clock that comes in: 1/4, 1/3, 1/2, 2/3, x1 "
+                            "(the default), 3/2, x2, x3, x4. At 1/2 a drum machine at 120 drives the drone at "
+                            "60, half time; song position lands at the same ratio"),
+                 ("OUT DIV", "the clock sent as a ratio of the drone's tempo, the same choice: at x2 the gear "
+                             "runs double time")], widths=(34 * mm, None)),
           Paragraph("They belong to the Brick, like WIFI SYNC: loading a preset keeps them.", SMALL),
           Paragraph("Linking Bricks", H2),
           Paragraph("Several Bricks play in time with one by cable, with no MIDI interface: the leader has a "
