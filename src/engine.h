@@ -117,10 +117,11 @@ enum { STUNE_SCALE, STUNE_CHORD, STUNE_CHORD9, STUNE_DRONE, STUNE_FIFTHS, NSTUNE
 enum { BODY_WOOD, BODY_GOURD, BODY_BRONZE, BODY_TUNED, BODY_METAL, BODY_CERAMIC, BODY_GLASS, NBODY };
 enum { MODE_MONO, MODE_CHORD };
 enum { SYNC_OFF, SYNC_AUTO, SYNC_LEAD, SYNC_FOLLOW, NSYNCMODE };
-/* GP_MIDI, the MIDI clock over USB (TrimUI): AUTO sends it and follows one
+/* GP_MIDI, the MIDI clock over USB (TrimUI; the MIDI page's CLOCK IN and
+ * CLOCK OUT switches, both on AUTO): AUTO sends it and follows one
  * that comes in, SEND always sends it and ignores one coming in, FOLLOW only
- * follows, OFF neither (notes and CCs still come in). GP_MIDISTART: FOLLOW
- * (0) the clock's START, STOP, CONTINUE and song position, or IGNORE (1)
+ * follows, OFF neither (notes and CCs still come in). GP_MIDISTART (START IN, on
+ * when 0): FOLLOW (0) the clock's START, STOP, CONTINUE and song position, or IGNORE (1)
  * them and keep its tempo only (over the Brick link, its bar too). Both
  * belong to the unit, like WIFI SYNC: loading a preset keeps them. */
 enum { MIDI_AUTO, MIDI_SEND, MIDI_FOLLOW, MIDI_OFF, NMIDIMODE };

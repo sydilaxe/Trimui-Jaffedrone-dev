@@ -38,11 +38,17 @@ static volatile float latency_s = 0.03f;
 
 void midi_set_latency(float seconds) { latency_s = seconds < 0.f ? 0.f : seconds; }
 
-/* the MIX page's MIDI and START settings over launch.sh's JD_MIDI_CLOCK / JD_MIDI_FOLLOW */
+/* the MIDI page's MIDI CLOCK switches over launch.sh's JD_MIDI_CLOCK / JD_MIDI_FOLLOW */
 static int can_follow(void) { return follow && (song.gp[GP_MIDI] == MIDI_AUTO || song.gp[GP_MIDI] == MIDI_FOLLOW); }
 static int can_send(void) { return clock_out && (song.gp[GP_MIDI] == MIDI_AUTO || song.gp[GP_MIDI] == MIDI_SEND); }
 /* START, STOP, CONTINUE and song position too, unless set to the clock only */
 static int can_transport(void) { return can_follow() && !song.gp[GP_MIDISTART]; }
+/* START and STOP out with the clock, unless START OUT is off */
+static int send_transport(void) { return midi_cfg.start_out; }
+
+/* the drone's 16ths a tick in moves it; a tick out moves the clock sent */
+static double in_ratio(void) { return midi_clkdiv_ratio(midi_cfg.in_div); }
+static double out_ratio(void) { return midi_clkdiv_ratio(midi_cfg.out_div); }
 
 /* ------------------------------------------------------------- notices */
 
@@ -324,7 +330,7 @@ static void control(int ch, int cc, int v, uint64_t t)
 
 static uint64_t tick_us, ext_seen_us;
 static double tick_avg_us;
-static int64_t ticks;     /* since START (or the song position) */
+static double in_pos;     /* where the clock has the drone, in its 16ths: since START (or the song position) */
 static volatile int following; /* an outside clock leads */
 static int ext_running;
 static int out_running; /* the clock going out */
@@ -371,22 +377,22 @@ static void clock_tick(uint64_t t)
         return;
     following = 1;
     if (precise_us && t - precise_us < 1000000) { /* a leading Brick's positions hold the tempo and phase */
-        ticks++;
+        in_pos += in_ratio() / 6.0;
         return;
     }
     /* the tempo: set when it has really changed (the phase lock below takes
      * up what is left), quickly while the fit is young */
-    float bpm = (float)(60e6 / (tick_avg_us * 24.0));
+    float bpm = (float)(60e6 / (tick_avg_us * 24.0) * in_ratio()); /* IN DIV: 1/2 half time */
     bpm = bpm < 40.f ? 40.f : bpm > 250.f ? 250.f : bpm;
     if (fabsf(bpm - engine_bpm()) > (tk_n < 24 ? 0.05f : 0.15f))
         engine_set_bpm(roundf(bpm * 100.f) / 100.f);
     if (!ext_running || !live.playing)
         return;
-    ticks++;
+    in_pos += in_ratio() / 6.0;
     /* the phase: what is heard (the audio clock) should be where the clock
      * is; trimmed gently, jumped only when far off, and a little integral
      * takes up the tempo's last difference */
-    double err = ticks / 6.0 - heard_now(t);
+    double err = in_pos - heard_now(t);
     if (fabs(err) > 2.0) {
         engine_set_position(position() + err);
         engine_set_rate(1.0);
@@ -405,7 +411,7 @@ static void realtime(uint8_t b, uint64_t t)
     case 0xfa: /* START: from the top */
         if (!can_transport())
             break;
-        ticks = 0;
+        in_pos = 0.0;
         ext_running = 1;
         engine_set_position(latency_s * engine_bpm() / 15.0);
         engine_set_playing(1);
@@ -554,8 +560,8 @@ static void message(uint64_t t)
         break;
     case 0xf0:
         if (status == 0xf2 && can_transport()) { /* song position, in 16ths */
-            ticks = (int64_t)((data[1] << 7) | data[0]) * 6;
-            engine_set_position(ticks / 6.0 + latency_s * engine_bpm() / 15.0);
+            in_pos = ((data[1] << 7) | data[0]) * in_ratio();
+            engine_set_position(in_pos + latency_s * engine_bpm() / 15.0);
         }
         break;
     }
@@ -628,7 +634,7 @@ void midi_reset(void)
         pb[c] = 0.f, sustain[c] = 0, press[c] = -1.f, modw[c] = 0.f;
     tick_us = ext_seen_us = 0;
     tick_avg_us = 0.0;
-    ticks = 0;
+    in_pos = 0.0;
     following = ext_running = 0;
     status = 0, ndata = 0, in_sysex = 0, nsx = 0;
     precise_us = 0, pll_i = 0.0;
@@ -638,7 +644,7 @@ void midi_reset(void)
 
 /* ------------------------------------------------------------ clock out */
 
-static double out_est;
+static double out_est, out_r = 1.0; /* out_r: the OUT DIV the ticks were counted at */
 static int64_t out_sent;
 static uint64_t out_t;
 
@@ -647,21 +653,22 @@ int midi_clock_step(uint64_t t, uint8_t *out, int max)
     int n = 0;
     int play = live.playing && can_send() && !following;
     if (!play) {
-        if (out_running && n < max)
+        if (out_running && send_transport() && n < max)
             out[n++] = 0xfc;
         out_running = 0;
         return n;
     }
-    double bpm = engine_bpm();
+    double bpm = engine_bpm(), r = out_ratio(); /* OUT DIV: x2 sends double time */
     /* where the sound is, through whichever output plays it (a USB audio
      * interface's own buffering included): the audio clock */
     double heard = heard_now(t);
     if (!out_running) { /* START now: the next tick is the first */
         out_running = 1;
         out_est = heard;
-        out_sent = (int64_t)floor(heard * 6.0);
+        out_r = r;
+        out_sent = (int64_t)floor(heard * 6.0 * r);
         out_t = t;
-        if (n < max)
+        if (send_transport() && n < max)
             out[n++] = 0xfa;
         return n;
     }
@@ -671,8 +678,12 @@ int midi_clock_step(uint64_t t, uint8_t *out, int max)
     out_t = t;
     double d = heard - out_est;
     out_est += fabs(d) > 1.0 ? d : d * 0.02;
-    int64_t want = (int64_t)floor(out_est * 6.0);
-    if (want - out_sent > 4) /* a jump (a new position): no burst of ticks */
+    int64_t want = (int64_t)floor(out_est * 6.0 * r);
+    if (r != out_r) { /* OUT DIV changed: count on from here at the new rate */
+        out_r = r;
+        out_sent = want;
+    }
+    if (want - out_sent > (r > 1.0 ? 4 * r : 4)) /* a jump (a new position): no burst of ticks */
         out_sent = want - 1;
     while (out_sent < want && n < max) {
         out[n++] = 0xf8;
@@ -904,7 +915,7 @@ static void *loop(void *arg)
             send_links(pos, n);
     }
     uint8_t stop = 0xfc;
-    if (out_running)
+    if (out_running && send_transport())
         send_all(&stop, 1);
     for (int i = 0; i < nports; i++)
         close(ports[i].fd);
