@@ -21,7 +21,7 @@ the Miyoo version; keep `engine_render` and the split `engine_voices` / `engine_
 sample for sample (the harness checks "render split ... same sound 1"). Nothing in the effects stage may
 feed back into the voices.
 
-`GP_MIDI` and `GP_MIDISTART` (the MIDI clock's way and START / STOP, on MIX) are the TrimUI's: they made the
+`GP_MIDI` and `GP_MIDISTART` (the MIDI clock's way and START / STOP in, the MIDI page's CLOCK IN, CLOCK OUT and START IN switches) are the TrimUI's: they made the
 song JDR18; the triplet, dotted and quintuple ring rates and `SP_ACCENT` made it JDR19, which loads every
 older song (with ACCENT 0, so it sounds as it did). The Miyoo version has neither yet, so its loader rejects a
 song saved here. Like WIFI SYNC and the output, they belong to the Brick: loading a preset keeps them.

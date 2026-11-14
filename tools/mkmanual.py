@@ -374,7 +374,7 @@ def build(out):
     s += [Paragraph("The six pages", H2)]
     thumbs = [("play", "PLAY: the strings and their rhythms"), ("wind_sound", "SOUND: each voice's tone"),
               ("compose", "COMPOSE: scale, chords, change"), ("mix", "MIX: levels and effects"),
-              ("song", "SONG: presets, chord memory, key"), ("midi", "MIDI: channels, keys, CC map")]
+              ("song", "SONG: presets, chord memory, key"), ("midi", "MIDI: channels, keys, clock, CC map")]
     cells = []
     for name, cap in thumbs:
         cells.append([ImageFlow(name, 82), Paragraph(cap, CAP)])
@@ -506,8 +506,7 @@ def build(out):
                             "EVOLVE, GLIDE, tempo, Wi-Fi sync and two LFOs.", SMALL),
                   Paragraph("<b>MIX</b>: each voice's LEVEL, PAN, GATE (RELEASE in LATCH), ACCENT (how its pluck ring's "
                             "hits stand out: the bow lifts, the hit is louder) and AURA, the master, "
-                            "undertones (SUB), then AURA, delay, reverb and binaural; under AURA, the MIDI "
-                            "clock's MIDI and START settings (see USB).", SMALL)]],
+                            "undertones (SUB), then AURA, delay, reverb and binaural.", SMALL)]],
                 colWidths=(250, 250))]
     s += [PageBreak()]
 
@@ -658,6 +657,14 @@ def build(out):
                  ("SHIFT", "every key moved, -24 to +24 semitones"),
                  ("SNAP", "SCALE: each key moves to the nearest note of the song's scale and root"),
                  ("POLY", "how many keys a voice plays at once, 1 to 4 (at 1, each key takes the last's place)"),
+                 ("CLOCK IN", "MIDI CLOCK: ON follows a clock that comes in; OFF ignores it"),
+                 ("CLOCK OUT", "ON sends clock while the drone plays (with CLOCK IN on, until one comes in); "
+                               "OFF sends none"),
+                 ("START IN", "ON starts, stops and places the drone with the clock's START, STOP, CONTINUE "
+                              "and song position; OFF keeps the clock's tempo only, so you start and stop it"),
+                 ("START OUT", "ON sends START and STOP with the clock; OFF sends the clock alone"),
+                 ("IN DIV", "the drone at a ratio of the clock coming in, 1/4 to x4 (1/2: half time)"),
+                 ("OUT DIV", "the clock sent at a ratio of the drone's tempo, 1/4 to x4 (x2: double time)"),
                  ("CC MAP", "each CC and what it sets. Select any control on SOUND, COMPOSE, MIX or SONG, "
                             "press " + B("START") + " + " + B("B") + " and move a knob: that CC now sets it. A "
                             "voice's control moves the voice of the channel the CC comes on (the selected one "
@@ -686,16 +693,25 @@ def build(out):
                            "song position start, stop and place the drone")], widths=(34 * mm, None)),
           Paragraph("MIDI out", H2),
           Paragraph("While the drone plays, and no clock is coming in, Jaffedrone sends MIDI clock (24 a "
-                    "quarter note) with START and STOP to every MIDI port, timed to the sound as it is heard. "
+                    "quarter note) with START and STOP to every MIDI port, timed to the sound as it is heard "
+                    "(the MIDI CLOCK switches, below, turn each off; OUT DIV sends it faster or slower). "
                     "It leads a drum machine or sequencer over USB as MONO+CLK does over the headphone jack.", P),
-          Paragraph("MIDI and START (on MIX)", H2),
-          table([("MIDI", "which way the clock goes: AUTO (the default) sends it, and follows a clock that "
-                          "comes in instead; SEND always sends it and ignores one coming in; FOLLOW only "
-                          "follows; OFF neither (notes and CCs still come in)"),
-                 ("START", "FOLLOW (the default) starts, stops and places the drone with the clock's START, "
-                           "STOP, CONTINUE and song position; IGNORE follows the clock's tempo only, so you "
-                           "start and stop it yourself")], widths=(34 * mm, None)),
-          Paragraph("Both belong to the Brick, like WIFI SYNC: loading a preset keeps them.", SMALL),
+          Paragraph("MIDI CLOCK (on the MIDI page)", H2),
+          table([("CLOCK IN", "ON (the default) follows a clock that comes in; OFF ignores it (notes and CCs "
+                              "still come in)"),
+                 ("CLOCK OUT", "ON (the default) sends clock while the drone plays; with CLOCK IN on, only "
+                               "until a clock comes in. OFF sends none"),
+                 ("START IN", "ON (the default) starts, stops and places the drone with the clock's START, "
+                              "STOP, CONTINUE and song position; OFF follows the clock's tempo only, so you "
+                              "start and stop it yourself"),
+                 ("START OUT", "ON (the default) sends START and STOP with the clock; OFF sends the clock "
+                               "alone, for gear you start by hand"),
+                 ("IN DIV", "the drone's tempo as a ratio of the clock that comes in: 1/4, 1/3, 1/2, 2/3, x1 "
+                            "(the default), 3/2, x2, x3, x4. At 1/2 a drum machine at 120 drives the drone at "
+                            "60, half time; song position lands at the same ratio"),
+                 ("OUT DIV", "the clock sent as a ratio of the drone's tempo, the same choice: at x2 the gear "
+                             "runs double time")], widths=(34 * mm, None)),
+          Paragraph("They belong to the Brick, like WIFI SYNC: loading a preset keeps them.", SMALL),
           Paragraph("Linking Bricks", H2),
           Paragraph("Several Bricks play in time with one by cable, with no MIDI interface: the leader has a "
                     "powered USB hub in its top port, and each follower plugs its bottom (charging) port into "
@@ -703,7 +719,7 @@ def build(out):
                     "offers its bottom port as a \"TrimUI clock link\", and a leader sends its clock, START and "
                     "STOP and where its sound is, about 50 times a second, so the followers sound together "
                     "within a tenth of a millisecond, up to 250 BPM. A follower plugged in mid-song comes in "
-                    "at the leader's place; one set to START IGNORE keeps the leader's tempo and bar but "
+                    "at the leader's place; one with START IN off keeps the leader's tempo and bar but "
                     "starts and stops by hand. Columbia Street, HI5 and RadioScan link the same way, so any "
                     "of them can lead. A leader can use USB audio and MIDI gear on the same hub; one that "
                     "follows a drum machine's clock passes it on. <b>JD_LINK=0</b> in launch.sh leaves the "

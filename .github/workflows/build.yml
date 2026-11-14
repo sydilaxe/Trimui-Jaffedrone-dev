@@ -113,6 +113,9 @@ jobs:
           grep -q "midi clock in: START plays 1, 120 BPM -> .* (1), STOP stops 1" $r
           grep -q "^perflog jumps: .*(want 0 1 0 0 0: 1)" $r
           grep -q "midi clock out: START 1, .*(want 192: 1), STOP 1" $r
+          grep -q "midi start out off: .*(want ticks, none: 1)" $r
+          grep -q "midi clock switches: .*and all back (1: 1)" $r
+          grep -q "midi clock divisions: .*(want 384: 1); .*(want 60, under 1: 1)" $r
           grep -q "^midi modes .*(want 1: 1)" $r
           # the Brick clock link (USB gadget follower, usbfs leader) and the tight clock
           grep -q "^midi clock in at 250 BPM: .*(want under 0.5: 1)" $r
