@@ -12,3 +12,4 @@ dist/Jaffedrone/sysinfo.txt
 dist/Jaffedrone/LICENSE-mbedtls.txt
 third_party/mbedtls/
 third_party/mbedtls.tar.bz2
+dist/Jaffedrone/audio.txt

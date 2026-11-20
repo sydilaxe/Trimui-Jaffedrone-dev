@@ -8,7 +8,7 @@
  * played at any instant, and the position noted with each buffer made turns
  * that frame into steps.
  *
- * Shared with the sibling apps; keep the copies the same. */
+ * From brickio, shared by the sydilaxe apps: change it here, not in an app's copy. */
 #pragma once
 #include <stdint.h>
 

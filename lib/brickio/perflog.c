@@ -1,5 +1,4 @@
-/* Performance log: see perflog.h. Shared by HI5 and RadioScan; keep the
- * copies the same. */
+/* Performance log: see perflog.h. From brickio: change it here, not in an app's copy. */
 #define _GNU_SOURCE
 #include "perflog.h"
 
@@ -58,6 +57,7 @@ uint64_t perf_now_us(void)
 }
 
 int perf_level(void) { return level; }
+void perf_set_level(int l) { level = l < PERF_OFF ? PERF_OFF : l > PERF_DETAIL ? PERF_DETAIL : l; }
 
 static void vline(const char *tag, const char *fmt, va_list ap)
 {
@@ -123,9 +123,13 @@ static long temperature(void)
 
 static void system_line(void)
 {
-    char board[64], gov[32];
+    int muos = access("/opt/muos", F_OK) == 0;
+    char board[64], gov[32], model[64] = "";
     read_line("/opt/muos/device/config/board/name", board, sizeof board);
     read_line(CPU "cpu0/cpufreq/scaling_governor", gov, sizeof gov);
+    const char *m = getenv("TRIMUI_MODEL");
+    if (m)
+        snprintf(model, sizeof model, ", model %s", m);
     max_khz = read_num(CPU "cpu0/cpufreq/scaling_max_freq");
     long min_khz = read_num(CPU "cpu0/cpufreq/scaling_min_freq");
     long pages = sysconf(_SC_PHYS_PAGES), avail = sysconf(_SC_AVPHYS_PAGES), psz = sysconf(_SC_PAGESIZE);
@@ -134,8 +138,8 @@ static void system_line(void)
         snprintf(clock, sizeof clock, "%ld-%ld MHz", min_khz / 1000, max_khz / 1000);
     if (temperature() >= 0)
         snprintf(temp, sizeof temp, "%ld C", temperature());
-    perf_log("SYS", "MustardOS%s%s, build %s, %ld cores, governor %s, %s, memory %ld MB (%ld free), %s",
-             board[0] ? ", board " : "", board,
+    perf_log("SYS", "%s%s%s%s, build %s, %ld cores, governor %s, %s, memory %ld MB (%ld free), %s",
+             muos ? "MustardOS" : "TrimUI OS", board[0] ? ", board " : "", board, model,
              build_name ? build_name : "brick + brickpro", sysconf(_SC_NPROCESSORS_ONLN), gov[0] ? gov : "?", clock,
              pages > 0 ? pages * (psz / 1024) / 1024 : -1, avail > 0 ? avail * (psz / 1024) / 1024 : -1, temp);
     /* the Brick build on a Brick Pro has no sticks (and the other way round, the

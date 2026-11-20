@@ -18,12 +18,19 @@ TARGET := aarch64-linux-gnu.2.28
 CPU    := cortex_a53
 SDL_INC := third_party/SDL2-2.30.9-headers
 
-SRC    := src/engine.c src/ui.c src/gfx.c src/sync.c src/aclock.c src/log.c
-HDR    := src/engine.h src/ui.h src/gfx.h src/sync.h src/aclock.h src/log.h src/font_data.h src/logo_data.h
+# lib/brickio: the TrimUI apps' shared USB audio, MIDI and clock, a copy of sydilaxe/Brickio-dev's src/ at
+# lib/brickio/BRICKIO_VERSION (update it with Brickio-dev's tools/brickio-sync.sh, never by editing it here)
+BIO    := lib/brickio
+BIO_CLOCK := $(BIO)/aclock.c $(BIO)/perflog.c $(BIO)/link.c $(BIO)/linkpos.c $(BIO)/mclock.c $(BIO)/mclockio.c \
+          $(BIO)/midi.c $(BIO)/sync.c
+BIO_AUDIO := $(BIO)/usbaudio.c $(BIO)/duplex.c $(BIO)/aring.c $(BIO)/blinkauto.c $(BIO)/blinkio.c $(BIO)/blink.c
+SRC    := src/engine.c src/ui.c src/gfx.c src/log.c
+HDR    := src/engine.h src/ui.h src/gfx.h src/log.h src/font_data.h src/logo_data.h $(wildcard $(BIO)/*.h)
 NET    := src/net.c src/update.c # the self-updater, on the device and in build/jd_update
-PLAT   := src/ahead.c src/midi.c src/link.c src/sticks.c src/perflog.c src/main_trimui.c
-PLATH  := src/ahead.h src/midi.h src/link.h src/sticks.h src/perflog.h src/net.h src/update.h
-CFLAGS := -O2 -std=gnu11 -Wall -Wextra -fno-math-errno
+PLAT   := src/ahead.c src/midi.c src/sticks.c src/main_trimui.c $(BIO_CLOCK) $(BIO_AUDIO)
+PLATH  := src/ahead.h src/midi.h src/sticks.h src/net.h src/update.h
+CFLAGS := -O2 -std=gnu11 -Wall -Wextra -Wno-missing-field-initializers -fno-math-errno -I$(BIO) \
+          -DJD_BRICKIO='"$(shell cat $(BIO)/BRICKIO_VERSION)"' 
 APP    := dist/Jaffedrone
 
 # the app's version: a release passes its tag's (`make package JD_VERSION=0.8.0`), otherwise the one in
@@ -46,9 +53,9 @@ $(APP)/splash.jdi: tools/mksplash.py art/roofline.jpg src/logo_data.h src/ui.c
 	python3 tools/mksplash.py art/roofline.jpg $@
 
 # a stand-in for the device's libSDL2-2.0.so.0, to link against (the device has the real one)
-build/sdl2/libSDL2-2.0.so.0: tools/mksdlstub.py src/main_trimui.c
+build/sdl2/libSDL2-2.0.so.0: tools/mksdlstub.py src/main_trimui.c $(BIO_AUDIO)
 	@mkdir -p build/sdl2
-	python3 tools/mksdlstub.py build/sdl2/sdl2_stub.c src/main_trimui.c
+	python3 tools/mksdlstub.py build/sdl2/sdl2_stub.c src/main_trimui.c $(BIO_AUDIO)
 	$(ZIG) cc -target $(TARGET) -shared -Wl,-soname,libSDL2-2.0.so.0 -o $@ build/sdl2/sdl2_stub.c
 
 # Mbed TLS (Apache-2.0) for the updater's HTTPS, from a pinned release, not committed; each
@@ -78,7 +85,7 @@ build/host/libmbedtls.a: $(MBED_SRC)
 	$(MAKE) -f tools/mbedtls.mk OUT=build/host MBED_DIR=$(MBED_DIR) CC=cc AR=ar MBED_CFLAGS=-O2
 
 DEVICE_CC = $(ZIG) cc -target $(TARGET) -mcpu=$(CPU) $(CFLAGS) -I$(SDL_INC) -I$(MBED_DIR)/include -Isrc
-DEVICE_LINK = build/zig/libmbedtls.a build/sdl2/libSDL2-2.0.so.0 -lm -lpthread -Wl,--allow-shlib-undefined -s
+DEVICE_LINK = build/zig/libmbedtls.a build/sdl2/libSDL2-2.0.so.0 -lm -lpthread -ldl -Wl,--allow-shlib-undefined -s
 
 build/brick/jaffedrone: $(SRC) $(NET) $(PLAT) $(HDR) $(PLATH) build/sdl2/libSDL2-2.0.so.0 build/zig/libmbedtls.a
 	@mkdir -p build/brick
@@ -95,13 +102,13 @@ build/jd_update: $(NET) src/main_update.c src/engine.h src/net.h src/update.h bu
 update-test: build/jd_update
 	sh tools/update_test.sh
 
-build/jd_test: $(SRC) src/ahead.c src/midi.c src/link.c src/sticks.c src/perflog.c src/main_test.c $(HDR) $(PLATH)
+build/jd_test: $(SRC) src/ahead.c src/midi.c src/sticks.c src/main_test.c $(BIO_CLOCK) $(HDR) $(PLATH)
 	@mkdir -p build
-	cc $(CFLAGS) -o $@ $(SRC) src/ahead.c src/midi.c src/link.c src/sticks.c src/perflog.c src/main_test.c -lm -lpthread
+	cc $(CFLAGS) -o $@ $(SRC) src/ahead.c src/midi.c src/sticks.c src/main_test.c $(BIO_CLOCK) -lm -lpthread
 
-build/jd_bench: $(SRC) src/main_bench.c $(HDR)
+build/jd_bench: $(SRC) src/main_bench.c $(BIO)/sync.c $(BIO)/aclock.c $(HDR)
 	@mkdir -p build
-	cc $(CFLAGS) -o $@ $(SRC) src/main_bench.c -lm
+	cc $(CFLAGS) -o $@ $(SRC) src/main_bench.c $(BIO)/sync.c $(BIO)/aclock.c -lm
 
 # the load of many voice mixtures at their worst, heaviest first
 bench: build/jd_bench
@@ -166,9 +173,9 @@ endif
 .PHONY: version all test bench package install clean manual update-test FORCE
 
 # host-side wifi sync interop check (run alongside HI5's)
-build/jd_synctest: $(SRC) src/main_synctest.c $(HDR)
+build/jd_synctest: $(SRC) src/main_synctest.c src/midi.c $(BIO_CLOCK) $(HDR)
 	@mkdir -p build
-	cc $(CFLAGS) -o $@ $(SRC) src/main_synctest.c -lm
+	cc $(CFLAGS) -o $@ $(SRC) src/main_synctest.c src/midi.c $(BIO_CLOCK) -lm -lpthread
 
 # the PDF manual, with the app's own screens on a drawn Brick
 manual: build/jd_test tools/mkmanual.py

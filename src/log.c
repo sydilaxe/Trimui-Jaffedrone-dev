@@ -222,7 +222,7 @@ static void status(AudioTiming *t, double secs)
         load, peak_load, t ? t->late : 0, t ? t->gap_max_us / 1000.0 : 0, t && secs > 0 ? t->calls / secs : 0,
         t && t->buffer_us ? 1e6 / t->buffer_us : 0, s.peak, rms, s.clips, lev, s.lev_min, ui_avg,
         t ? t->ui_ms_max : 0, t && t->rt ? "realtime" : "normal", sys,
-        ss->leading ? "lead" : ss->have_leader ? "follow" : "-");
+        ss->leading ? "lead" : ss->following ? "follow" : "-");
     if (level == LOG_DETAIL)
         for (int v = 0; v < NS; v++) {
             if (!song.on[v] || s.f_target[v] <= 0.f)
