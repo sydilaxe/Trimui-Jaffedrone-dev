@@ -34,7 +34,7 @@
 #include "gfx.h"
 #include "log.h"
 #include "perflog.h"
-#include "link.h"
+#include "usbaudio.h"
 #include "midi.h"
 #include "sticks.h"
 #include "sync.h"
@@ -70,14 +70,35 @@ static int env_int(const char *name, int def)
 
 /* ------------------------------------------------------------- audio */
 
+/* Two paths. brickio (lib/brickio, the default): a USB interface straight
+ * through ALSA from one real-time thread (PLAYBACK: playback only, Jaffedrone
+ * being a synth), the speaker through SDL otherwise; the device, buffer and
+ * latency its, kept in audio.txt. SDL (JD_AUDIO_PATH=sdl): as before brickio.
+ * The engine makes 16-bit stereo either way (render ahead or not), so it
+ * sounds the same. */
+static int use_bio;
+static volatile int bio_ready; /* the render (ahead or not) is chosen: brickio's thread may make sound */
+static pthread_mutex_t bio_mx;
 static SDL_AudioDeviceID dev;
 static char dev_name[128]; /* "" is the system's own output */
 /* a device that would not open (on MustardOS PipeWire can hold a USB card):
  * not tried again until it is unplugged, as each try stops the sound */
 static char failed_out[128];
 static int rate, bufsz;
-static void lock(void) { SDL_LockAudioDevice(dev); }
-static void unlock(void) { SDL_UnlockAudioDevice(dev); }
+static void lock(void)
+{
+    if (use_bio)
+        pthread_mutex_lock(&bio_mx);
+    else
+        SDL_LockAudioDevice(dev);
+}
+static void unlock(void)
+{
+    if (use_bio)
+        pthread_mutex_unlock(&bio_mx);
+    else
+        SDL_UnlockAudioDevice(dev);
+}
 
 /* the audio callback's timing for the log, as on the Miyoo */
 static AudioTiming timing;
@@ -147,6 +168,76 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
     timing.us_sum += spent;
     if (spent > timing.us_max)
         timing.us_max = spent;
+}
+
+/* brickio's audio thread: stereo float out. The engine's 16-bit blocks (from
+ * the render ahead, or made here under bio_mx) turned to float at the very end */
+#define BIO_MAX 2048
+static void bio_process(const float *in, float *out, int frames, int have_input, void *ud)
+{
+    (void)in, (void)have_input, (void)ud;
+    static int16_t s[2 * BIO_MAX];
+    uint64_t t0 = now_us(), perf_t0 = perf_audio_begin(frames);
+    if (!bio_ready) {
+        memset(out, 0, sizeof(float) * 2 * (size_t)frames);
+        perf_audio_end(perf_t0);
+        return;
+    }
+    timing.calls++;
+    aclock_request(t0, frames);
+    for (int done = 0; done < frames;) {
+        int n = frames - done < BIO_MAX ? frames - done : BIO_MAX;
+        if (use_ahead) {
+            int got = ahead_read(s, n);
+            if (got < n)
+                aclock_silence(n - got);
+        }
+        else {
+            pthread_mutex_lock(&bio_mx);
+            render_marked(s, n);
+            pthread_mutex_unlock(&bio_mx);
+        }
+        for (int i = 0; i < 2 * n; i++)
+            out[2 * done + i] = s[i] * (1.f / 32768.f);
+        perf_audio_output(s, n); /* JUMP: a click made here */
+        track_peak(s, n);
+        done += n;
+    }
+    perf_audio_end(perf_t0);
+    uint32_t spent = (uint32_t)(now_us() - t0);
+    timing.us_sum += spent;
+    if (spent > timing.us_max)
+        timing.us_max = spent;
+}
+
+static void bio_opened(int frames, const char *device)
+{
+    timing.buffer_us = (uint32_t)(1000000.0 * frames / rate);
+    perf_audio_open(rate, frames, device);
+    jdlog("audio out (brickio): %s, %d Hz, %d frames a period", device, rate, frames);
+}
+
+/* what the sound takes to be heard: brickio's figure for the interface open,
+ * JD_SYNC_LATENCY (frames) over it. The clock out, the link and Wi-Fi sync are
+ * timed to the sound as heard, so Bricks on different interfaces meet at
+ * their outputs. The render ahead is the audio clock's own (made, then asked
+ * for); MIDI's fallback counts it too */
+static float bio_lat_ms = -1.f;
+static int ahead_frames;
+static void bio_latency(void)
+{
+    UaStatus st;
+    ua_status(&st);
+    if (fabsf(st.latency_ms - bio_lat_ms) < 0.5f)
+        return;
+    bio_lat_ms = st.latency_ms;
+    int lat = env_int("JD_SYNC_LATENCY", (int)(st.latency_ms * rate / 1000.f));
+    lock();
+    aclock_init(rate, lat);
+    unlock();
+    midi_set_latency((float)(lat + (use_ahead ? ahead_frames : 0)) / rate);
+    perf_log("AUDIO", "latency %.1f ms (%s): the clock out and the link timed to it", st.latency_ms,
+             st.duplex ? "measured, direct" : "the buffers");
 }
 
 static int is_usb_name(const char *n)
@@ -745,7 +836,9 @@ static void on_event(const SDL_Event *e)
         break;
     case SDL_AUDIODEVICEADDED:
     case SDL_AUDIODEVICEREMOVED:
-        if (!e->adevice.iscapture)
+        if (use_bio)
+            ua_event(e); /* brickio follows the interfaces itself */
+        else if (!e->adevice.iscapture)
             audio_hotplug();
         break;
     case SDL_RENDER_TARGETS_RESET:
@@ -945,7 +1038,18 @@ int main(int argc, char **argv)
     ui_midi_load(); /* the MIDI page's channels and CC map (midi.cfg) */
 
     rate = env_int("JD_RATE", 48000);
-    bufsz = env_int("JD_BUFFER", 512); /* the A53s have the time: half the Miyoo's delay */
+    bufsz = env_int("JD_BUFFER", 512); /* the SDL path's, and the render ahead's; the A53s have the time */
+    {
+        const char *p = getenv("JD_AUDIO_PATH");
+        use_bio = !(p && !strcasecmp(p, "sdl"));
+    }
+    if (use_bio)
+        ua_pin("JD"); /* brickio's output thread a core of its own: before SDL's threads and MIDI's */
+    pthread_mutexattr_t ma;
+    pthread_mutexattr_init(&ma);
+    pthread_mutexattr_setprotocol(&ma, PTHREAD_PRIO_INHERIT); /* the screen holding it lends the sound its priority */
+    pthread_mutex_init(&bio_mx, &ma);
+    pthread_mutexattr_destroy(&ma);
     int cores = ncores();
     /* JD_SPLIT=0: one thread makes all the sound, as on the Miyoo */
     int split = env_int("JD_SPLIT", 1) && cores >= 2;
@@ -1027,7 +1131,19 @@ int main(int argc, char **argv)
      * (frames) lines this unit up with other apps by ear if needed. Set once:
      * a USB device plugged in later keeps the frames already made ahead. */
     aclock_init(rate, env_int("JD_SYNC_LATENCY", bufsz));
-    int have_audio = open_output(pick_output(), 0);
+    ahead_frames = ahead;
+    int have_audio;
+    if (use_bio) {
+        UaConfig ac = {.app = "JD", .process = bio_process, .log = perf_log, .settings = "audio.txt",
+                       .opened = bio_opened, .rate = rate, .no_input = 1};
+        ua_start(&ac); /* silent until the render is chosen (bio_ready) */
+        have_audio = 1;
+        perf_log("AUDIO", "path: brickio (lib/brickio %s); JD_AUDIO_PATH=sdl for the old one", JD_BRICKIO);
+    }
+    else {
+        have_audio = open_output(pick_output(), 0);
+        perf_log("AUDIO", "path: SDL (JD_AUDIO_PATH=sdl)");
+    }
     if (have_audio && ahead > 0) {
         if (split)
             use_ahead = ahead_start_split(rate, chunk, ahead, 1, pin ? 2 : -1, pin ? 3 : -1);
@@ -1049,7 +1165,10 @@ int main(int argc, char **argv)
         ui_lock = use_ahead ? ahead_lock : lock;
         ui_unlock = use_ahead ? ahead_unlock : unlock;
         timing.rt = use_ahead ? ahead_rt() : 0;
-        SDL_PauseAudioDevice(dev, 0);
+        if (use_bio)
+            bio_ready = 1;
+        else
+            SDL_PauseAudioDevice(dev, 0);
     }
     else
         fprintf(stderr, "jaffedrone: no audio: %s\n", SDL_GetError());
@@ -1060,15 +1179,14 @@ int main(int argc, char **argv)
         fprintf(stderr, "jaffedrone: could not lower the screen's priority\n");
 
     ui_init();
-    sync_init();
+    sync_init(wifi_clock()); /* brickio's Wi-Fi sync, on the drone */
     /* the clock out leaves as the sound is heard: the engine runs the render
      * ahead and the device's buffer ahead of it */
     midi_set_latency((float)((use_ahead ? ahead : 0) + bufsz) / rate);
-    if (env_int("JD_MIDI", 1)) {
-        midi_start(pin ? 1 : -1);
-        /* the bottom port as a clock link: a Brick with a hub can lead this one (link.h) */
-        link_follow_start();
-    }
+    if (use_bio)
+        bio_latency(); /* brickio's own figure for the interface */
+    if (env_int("JD_MIDI", 1))
+        midi_io_start(); /* brickio's reader, the clock thread, and the Brick link on the bottom port */
     int update_auto = env_int("JD_UPDATE", 1) != 0, update_tries = 0;
     if (update_auto) {
         net_init(CA_BUNDLE);
@@ -1096,6 +1214,7 @@ int main(int argc, char **argv)
         int mch, mcc, mv;
         while (midi_take_cc(&mch, &mcc, &mv))
             ui_midi_cc(mch, mcc, mv);
+        midi_tick();
         Uint32 now = SDL_GetTicks();
         ui_tick((int)(now - last));
         last = now;
@@ -1104,6 +1223,14 @@ int main(int argc, char **argv)
             continue;
         }
         sync_poll(now_us());
+        if (use_bio) {
+            int notes = ua_tick(); /* the watchdog, hot-plug, the buffer */
+            char nb[96];
+            for (int bit = 1; bit <= UA_NOTE_REOPEN; bit <<= 1)
+                if ((notes & bit) && ua_note_text(bit, nb, sizeof nb))
+                    ui_notice(nb);
+            bio_latency();
+        }
         if (use_ahead) {
             AheadStats as;
             ahead_take_stats(&as);
@@ -1184,12 +1311,13 @@ int main(int argc, char **argv)
 #ifdef JD_BRICKPRO
     leds_close();
 #endif
-    link_follow_stop(); /* the bottom port given back */
-    midi_stop();
+    midi_io_stop(); /* STOP out, the bottom port given back */
     jdlog_close();
     perf_close();
     sync_close();
-    if (dev)
+    if (use_bio)
+        ua_stop();
+    else if (dev)
         SDL_CloseAudioDevice(dev);
     ahead_stop();
     SDL_Quit();

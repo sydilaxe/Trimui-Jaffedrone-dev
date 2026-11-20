@@ -253,7 +253,7 @@ static void sim_sync(int echo, double *mean_ms, double *worst_ms, float *delay)
     engine_init(RATE);
     engine_set_bpm(97.f);
     song.gp[GP_SYNC] = SYNC_FOLLOW;
-    sync_core_init(100);
+    sync_core_init(wifi_clock(), 100);
     aclock_init(RATE, 0);
     static int16_t pcm[2 * 1024];
     SimPkt q[64];
@@ -331,7 +331,7 @@ static void sim_sync(int echo, double *mean_ms, double *worst_ms, float *delay)
     *worst_ms = worst;
     *delay = sync_status()->delay_ms;
     engine_set_rate(1.0);
-    sync_core_init(1);
+    sync_core_init(wifi_clock(), 1);
 }
 
 int main(int argc, char **argv)
@@ -1227,7 +1227,7 @@ int main(int argc, char **argv)
         engine_init(RATE);
         engine_set_playing(1);
         song.gp[GP_SYNC] = SYNC_AUTO;
-        sync_core_init(0x80000000u);
+        sync_core_init(wifi_clock(), 0x80000000u);
         uint8_t pkt[SYNC_PKT_LEN];
         uint64_t t = 0;
         double lpos = 5.3, lbpm = 128.0, err = 0;
@@ -1257,7 +1257,7 @@ int main(int argc, char **argv)
         }
         const SyncStatus *ss = sync_status();
         printf("sync: bpm=%.1f peers=%d leader=%d phase err after 4 s = %.3f steps\n", engine_bpm(), ss->peers,
-               ss->have_leader, err);
+               ss->following, err);
         engine_set_rate(1.0);
     }
 

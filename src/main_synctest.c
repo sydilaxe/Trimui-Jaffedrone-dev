@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "engine.h"
+#include "midi.h"
 #include "sync.h"
 
 static uint64_t now_us(void)
@@ -26,7 +27,7 @@ int main(int argc, char **argv)
     song.gp[GP_SYNC] = mode;
     engine_set_bpm(bpm);
     engine_set_playing(mode == SYNC_LEAD);
-    sync_init();
+    sync_init(wifi_clock());
     static int16_t pcm[2 * 480];
     uint64_t t0 = now_us();
     while (now_us() - t0 < (uint64_t)secs * 1000000ULL) {
@@ -36,7 +37,7 @@ int main(int argc, char **argv)
     }
     const SyncStatus *s = sync_status();
     printf("JAFFEDRONE %s: bpm %.1f playing %d peers %d leading %d following %d offset %+.1f ms pos %.2f\n",
-           argv[1], engine_bpm(), live.playing, s->peers, s->leading, s->have_leader, s->offset_ms, engine_position());
+           argv[1], engine_bpm(), live.playing, s->peers, s->leading, s->following, s->offset_ms, engine_position());
     sync_close();
     return 0;
 }

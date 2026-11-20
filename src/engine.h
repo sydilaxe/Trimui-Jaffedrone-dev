@@ -116,7 +116,8 @@ enum { STUNE_SCALE, STUNE_CHORD, STUNE_CHORD9, STUNE_DRONE, STUNE_FIFTHS, NSTUNE
 /* body TYPE: METAL, CERAMIC and GLASS are the bore materials as a body */
 enum { BODY_WOOD, BODY_GOURD, BODY_BRONZE, BODY_TUNED, BODY_METAL, BODY_CERAMIC, BODY_GLASS, NBODY };
 enum { MODE_MONO, MODE_CHORD };
-enum { SYNC_OFF, SYNC_AUTO, SYNC_LEAD, SYNC_FOLLOW, NSYNCMODE };
+#include "sync.h" /* brickio's Wi-Fi sync (HI5S): SYNC_OFF, SYNC_AUTO, SYNC_LEAD, SYNC_FOLLOW */
+#define NSYNCMODE 4
 /* GP_MIDI, the MIDI clock over USB (TrimUI; the MIDI page's CLOCK IN and
  * CLOCK OUT switches, both on AUTO): AUTO sends it and follows one
  * that comes in, SEND always sends it and ignores one coming in, FOLLOW only

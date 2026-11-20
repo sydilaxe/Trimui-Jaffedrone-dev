@@ -1,9 +1,9 @@
 /* Performance log for the TrimUI Brick, Brick Hammer and Brick Pro ports
- * (shared by HI5 and RadioScan; keep the copies the same). It writes to
+ * (from brickio, shared by every sydilaxe TrimUI app: change it here, not in a copy). It writes to
  * log.txt (stderr), for troubleshooting and for tuning the audio settings on
  * either device:
  *
- *   SYS    at start: MustardOS, the board it names, this
+ *   SYS    at start: the firmware (TrimUI OS or MustardOS), the board, this
  *          build, the processor's governor and clock range, the memory
  *   STAT   every 10 s (every second at DETAIL): the audio callback's load
  *          (time spent making sound against the time a buffer lasts),
@@ -36,6 +36,7 @@ enum { PERF_OFF, PERF_BASIC, PERF_DETAIL };
  * hints; build: "brick", "brickpro", or NULL for one build serving both */
 void perf_init(const char *prefix, const char *build);
 int perf_level(void);
+void perf_set_level(int level); /* change it while running (TrimFX: SETUP > LOG) */
 /* the sound device opened (or reopened): rate, frames a buffer, its name */
 void perf_audio_open(int rate, int frames, const char *device);
 void perf_audio_rt(int on); /* the audio thread runs at real-time priority */

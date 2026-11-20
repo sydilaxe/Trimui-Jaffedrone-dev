@@ -46,6 +46,10 @@
 #pragma once
 #include <stdint.h>
 
+#include "sync.h"
+/* the drone, for brickio's Wi-Fi sync (sync_init, sync_core_init) */
+const SyncClock *wifi_clock(void);
+
 #include "engine.h"
 
 /* the MIDI page's settings (ui.c shows, edits and keeps them; they belong to
@@ -81,8 +85,13 @@ extern MidiCfg midi_cfg;
 const char *midi_target_name(int t);
 int midi_channel_voice(int ch); /* the voice channel ch (0-15) plays: its own, the selected one, or -1 */
 
-void midi_start(int core);   /* the thread (pinned to core, -1: anywhere) */
-void midi_stop(void);
+/* brickio's reader (real time), the Brick link's follower on the bottom port
+ * (JD_LINK=0 leaves it alone) and the clock's own thread (every millisecond,
+ * real time, mclockio). Following a clock on AUTO, the clock goes on to the
+ * other ports from this Brick's heard sound (JD_MIDI_RELAY=0: not) */
+void midi_io_start(void);
+void midi_io_stop(void);
+void midi_tick(void); /* main thread, each frame: the MIDI page's clock settings, ports coming and going */
 void midi_set_latency(float seconds); /* from the engine's position to the sound heard */
 /* messages for the screen ("MIDI: <device>"), main thread */
 int midi_take_notice(char *buf, int n);

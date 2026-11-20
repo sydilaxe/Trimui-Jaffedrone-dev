@@ -13,10 +13,15 @@ audio on the host into `build/test`. Without zig on the path, `pip install zigla
 The platform layer is `src/main_trimui.c` (SDL2: video scaled 1.6x from the 640x480 pages, the buttons of
 MustardOS's "muOS-Keys" controller (the Brick's or the Brick Pro's numbering, found at run time as in Columbia Street and HI5), USB
 audio, the sticks), `src/ahead.c` (render ahead; on the TrimUI the voices and the
-effects on two pinned threads), `src/midi.c` (USB MIDI through ALSA raw MIDI) and `src/link.c` (the clock link
-between Bricks: a follower's bottom port as a USB gadget through configfs and FunctionFS, found and driven by
-the leader through usbfs; keep it and the link's messages in `midi.c` the same as Columbia Street's, HI5's and
-RadioScan's, so the apps link to each other). The engine is shared with
+effects on two pinned threads) and `src/midi.c` (the keys, their expression, the CCs and the MIDI page's clock
+settings). Audio, MIDI I/O, the clock, the Brick link (a follower's bottom port as a USB gadget, driven by the
+leader through usbfs), the audio clock, Wi-Fi sync and the performance log are `lib/brickio`, a copy of
+sydilaxe/Brickio-dev's `src/` at the commit in `lib/brickio/BRICKIO_VERSION`: update it with Brickio-dev's
+`tools/brickio-sync.sh`, never by editing it here (a change belongs in brickio, where every app gets it, and
+where the link's bytes are checked so the apps keep linking to each other). The sound goes through brickio's
+`usbaudio` (`bio_process`, reading the render ahead, or rendering under `bio_mx`); `JD_AUDIO_PATH=sdl` keeps the
+old SDL path (`audio_cb`): keep both working. MIDI is brickio's reader and its musical clock wired by `mclockio`
+(the MIDI page's IN DIV / OUT DIV and START OUT are `mclock_set_ratio` and `mclock_set_start_out`). The engine is shared with
 the Miyoo version; keep `engine_render` and the split `engine_voices` / `engine_effects` the same sound,
 sample for sample (the harness checks "render split ... same sound 1"). Nothing in the effects stage may
 feed back into the voices.

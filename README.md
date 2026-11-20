@@ -558,6 +558,11 @@ are found as they are plugged in, and a message names each one.
 Jaffedrone sends clock (24 a quarter note), START and STOP to every port (with CLOCK OUT on; START OUT off
 sends the clock alone). The clock is timed to the sound as it is heard
 (the audio clock, through whichever output plays it), so a drum machine lands on the drone's beat.
+Following a clock with CLOCK IN and CLOCK OUT both on, Jaffedrone passes it on to its other ports and to
+the Bricks following it, timed to its own sound as heard and never back to the port it comes from, so a
+chain of gear lines up with what each one plays (`JD_MIDI_RELAY=0` doesn't). The clock, in and out and over
+the link, is [brickio](https://github.com/sydilaxe/Brickio-dev)'s, shared with the other apps: CONTINUE and
+song position land on the tick, a tick lost on the way is counted, and a new tempo is taken in a beat.
 
 **MIDI CLOCK on the MIDI page:** two rows, in over out: four switches, each ON (the default) or OFF,
 and two divisions. **CLOCK IN** follows a
@@ -639,16 +644,26 @@ The A133P has four Cortex-A53 cores and 1 GB of memory. Jaffedrone uses them thi
 - **The screen, the system and MIDI** share cores 0 and 1, below the sound.
 - **Memory** is locked, so the sound never waits for a page to be read back in.
 
+The sound goes through [brickio](https://github.com/sydilaxe/Brickio-dev) (`lib/brickio`), the sydilaxe
+TrimUI apps' shared USB audio, MIDI and clock: a USB interface is played straight through ALSA, not
+MustardOS's PipeWire, from one real-time thread on a core of its own (PLAYBACK in the log); the speaker
+and headphones through SDL. Its buffer starts small and grows a step if the interface keeps running dry,
+kept for each interface in `audio.txt`. `JD_AUDIO_PATH=sdl` keeps the old path (SDL, through PipeWire).
+Everything that keeps time (the MIDI clock out, the link, Wi-Fi sync) is timed to the sound as heard through
+the interface open, by brickio's figure for it, so Bricks on different interfaces meet at their outputs.
+
 The sound is made a buffer ahead; the audio device only copies it out. The buttons are read every few
 milliseconds, apart from drawing the screen, so a press reaches the sound at once. Settings in `launch.sh`,
 before `./jaffedrone`:
 
-- `JD_BUFFER=256`: smaller buffers, less delay from a press to the sound (512 by default, about 11 ms).
+- `JD_BUFFER=256`: the interface's buffer (brickio: AUTO), and the render ahead's (512 by default, about
+  11 ms): less delay from a press to the sound.
 - `JD_SPLIT=0`: make all the sound on one core, as on the Miyoo; `JD_PIN=0`: let the system place the
   threads.
 - `JD_AHEAD=0`: make the sound in the driver's request (to compare).
 - `JD_RATE=44100`: a lower sample rate, about 8% less work.
-- `JD_SYNC_LATENCY=512`: the frames the sound driver holds before they're heard (the buffer size by default).
+- `JD_SYNC_LATENCY=512`: the frames the sound driver holds before they're heard (brickio's figure for the
+  interface by default; the buffer size on the SDL path).
   Wi-Fi sync lines units up by what is heard, to within a millisecond or so; change this only if this unit
   sounds early or late against another app's.
 

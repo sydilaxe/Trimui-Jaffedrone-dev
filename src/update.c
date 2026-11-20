@@ -465,7 +465,8 @@ static int keep_users(const char *rel)
 {
     size_t n = strlen(rel);
     return strstr(rel, ".sav") || (n > 4 && (!strcmp(rel + n - 4, ".jds") || !strcmp(rel + n - 4, ".cfg"))) ||
-           !strcmp(rel, "log.txt") || !strncmp(rel, "jaffedrone_log.txt", 18) || !strcmp(rel, "sysinfo.txt");
+           !strcmp(rel, "log.txt") || !strncmp(rel, "jaffedrone_log.txt", 18) || !strcmp(rel, "sysinfo.txt") ||
+           !strcmp(rel, "audio.txt"); /* brickio's choices for each interface */
 }
 
 /* a path inside the app folder: relative, no "..", no empty parts, at most three deep */

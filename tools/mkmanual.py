@@ -689,13 +689,17 @@ def build(out):
                  ("Aftertouch, mod wheel", "what TOUCH and MOD move (BOW at first)"),
                  ("CC64", "sustain"), ("CC74", "TONE: darker / brighter"), ("CC91", "more / less reverb"),
                  ("Clock", "the tempo follows it (fitted over the last four beats of ticks, so USB's jitter "
-                           "averages out), its phase held on the sound as it is heard; START, CONTINUE, STOP and "
-                           "song position start, stop and place the drone")], widths=(34 * mm, None)),
+                           "averages out; a new tempo taken in a beat), its phase held on the sound as it is heard; "
+                           "START, CONTINUE, STOP and song position start, stop and place the drone, on the tick. "
+                           "A tick lost on the way (a busy hub) is counted all the same")], widths=(34 * mm, None)),
           Paragraph("MIDI out", H2),
           Paragraph("While the drone plays, and no clock is coming in, Jaffedrone sends MIDI clock (24 a "
                     "quarter note) with START and STOP to every MIDI port, timed to the sound as it is heard "
                     "(the MIDI CLOCK switches, below, turn each off; OUT DIV sends it faster or slower). "
-                    "It leads a drum machine or sequencer over USB as MONO+CLK does over the headphone jack.", P),
+                    "It leads a drum machine or sequencer over USB as MONO+CLK does over the headphone jack. "
+                    "Following a clock with CLOCK IN and CLOCK OUT both on, it passes the clock on to its other "
+                    "MIDI ports and the Bricks following it, timed to its own sound as heard and never back to "
+                    "the port it comes from, so a chain of gear lines up with what each one plays.", P),
           Paragraph("MIDI CLOCK (on the MIDI page)", H2),
           table([("CLOCK IN", "ON (the default) follows a clock that comes in; OFF ignores it (notes and CCs "
                               "still come in)"),
@@ -726,12 +730,18 @@ def build(out):
                     "bottom port alone.", P),
           Paragraph("Audio", H2),
           Paragraph("A USB sound card or DAC, once plugged in, takes the sound from the speaker and "
-                    "headphones; unplugged, the sound comes back to them.", P),
+                    "headphones; unplugged, the sound comes back to them. It is played straight through "
+                    "ALSA, not the system's mixer, from a thread on a core of its own (brickio, the sydilaxe "
+                    "TrimUI apps' shared audio), and its buffer is kept for each interface in audio.txt. "
+                    "Everything that keeps time (the MIDI clock out, the link, Wi-Fi sync) is timed to the "
+                    "sound as heard through that interface, so Bricks on different interfaces meet at their "
+                    "outputs.", P),
           Paragraph("Settings", H2),
           Paragraph("In <b>launch.sh</b> in the app folder: <b>JD_MIDI_NOTES=CHANNELS</b> gives voices 1-5 "
                     "channels 1-5 until the MIDI page sets them; <b>JD_MIDI_CLOCK=0</b> never sends clock; <b>JD_MIDI_FOLLOW=0</b> never "
-                    "follows it, whatever MIDI is set to; <b>JD_AUDIO=internal</b> keeps the sound on the speaker and "
-                    "headphones.", SMALL),
+                    "follows it, whatever MIDI is set to; <b>JD_MIDI_RELAY=0</b> doesn't pass on a clock it follows; "
+                    "<b>JD_AUDIO=internal</b> keeps the sound on the speaker and headphones; <b>JD_BUFFER=256</b> fixes "
+                    "the interface's buffer; <b>JD_AUDIO_PATH=sdl</b> plays through the system's mixer as before.", SMALL),
           PageBreak()]
     s += [Paragraph("Brick Pro: the sticks", H1),
           side(Brick("play_bow", {"LS": 1, "RS": 2}, pro=True),

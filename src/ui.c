@@ -1633,8 +1633,8 @@ static void draw_header(void)
     int lx = ix - 6;
     if (song.gp[GP_SYNC] != SYNC_OFF) {
         const SyncStatus *ss = sync_status();
-        int linked = ss->leading || ss->have_leader;
-        const char *t = ss->leading ? "LEAD" : ss->have_leader ? "FOLLOW" : "SYNC";
+        int linked = ss->leading || ss->following;
+        const char *t = ss->leading ? "LEAD" : ss->following ? "FOLLOW" : "SYNC";
         int w = gfx_text_w(t, FONT_SMALL) + 16;
         lx -= w + 6;
         para(lx, 3, w, 21, 5, linked ? C_SEA : C_PANEL2);
