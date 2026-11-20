@@ -23,7 +23,7 @@ SDL_INC := third_party/SDL2-2.30.9-headers
 BIO    := lib/brickio
 BIO_CLOCK := $(BIO)/aclock.c $(BIO)/perflog.c $(BIO)/link.c $(BIO)/linkpos.c $(BIO)/mclock.c $(BIO)/mclockio.c \
           $(BIO)/midi.c $(BIO)/sync.c
-BIO_AUDIO := $(BIO)/usbaudio.c $(BIO)/duplex.c $(BIO)/aring.c
+BIO_AUDIO := $(BIO)/usbaudio.c $(BIO)/duplex.c $(BIO)/aring.c $(BIO)/blinkauto.c $(BIO)/blinkio.c $(BIO)/blink.c
 SRC    := src/engine.c src/ui.c src/gfx.c src/log.c
 HDR    := src/engine.h src/ui.h src/gfx.h src/log.h src/font_data.h src/logo_data.h $(wildcard $(BIO)/*.h)
 NET    := src/net.c src/update.c # the self-updater, on the device and in build/jd_update

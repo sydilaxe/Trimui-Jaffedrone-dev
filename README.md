@@ -577,6 +577,11 @@ itself. The Brick link keeps the leader's own tempo whatever IN DIV says. Notes 
 these are set to. They belong to the Brick, like WIFI SYNC: loading a preset keeps them. `JD_MIDI_CLOCK=0` / `JD_MIDI_FOLLOW=0` in
 `launch.sh` never send / follow clock, whatever the switches say.
 
+**Its sound to another Brick:** leading Bricks on its hub, Jaffedrone also sends them its sound over the
+same cable (brickio's link data channel), with the music's position of every block: Columbia Street's
+sampler records it (its SAMPLE source LINK), starting on the bar. Nothing to set up; `JD_LINK_AUDIO=0`
+doesn't send it.
+
 **Linking Bricks:** several Bricks play in time with one by cable, with no MIDI interface between them: the
 **leader** has a powered USB hub in its **top** port, and each **follower** plugs its **bottom** (charging)
 port into the hub with a data cable. The wiring decides who leads, and any number can follow (up to eight

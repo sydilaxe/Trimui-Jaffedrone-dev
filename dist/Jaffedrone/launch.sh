@@ -27,6 +27,7 @@ export LD_LIBRARY_PATH="/usr/lib:$LD_LIBRARY_PATH"
 #   JD_SPLIT=0         make all the sound on one core, as on the Miyoo
 #   JD_AUDIO_PATH=sdl  the old audio path (SDL, through PipeWire) instead of brickio's direct one
 #   JD_MIDI_RELAY=0    following a clock, don't pass it on to the other MIDI ports
+#   JD_LINK_AUDIO=0    don't send the sound to the Bricks on the hub (Columbia Street samples it)
 #   JD_AUDIO=internal  always the speaker and headphones (default: a USB audio device when one is plugged in)
 #   JD_AUDIO=<name>    the output device whose name contains <name> (see the log)
 #   JD_MIDI=0          no USB MIDI

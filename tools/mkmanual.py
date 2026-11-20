@@ -728,6 +728,9 @@ def build(out):
                     "of them can lead. A leader can use USB audio and MIDI gear on the same hub; one that "
                     "follows a drum machine's clock passes it on. <b>JD_LINK=0</b> in launch.sh leaves the "
                     "bottom port alone.", P),
+          Paragraph("The leader also sends its sound to the Bricks on its hub that take it, over the same "
+                    "cable, with where each moment of it falls in the music: Columbia Street records it "
+                    "into a break, starting on the bar. <b>JD_LINK_AUDIO=0</b> doesn't send it.", P),
           Paragraph("Audio", H2),
           Paragraph("A USB sound card or DAC, once plugged in, takes the sound from the speaker and "
                     "headphones; unplugged, the sound comes back to them. It is played straight through "

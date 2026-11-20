@@ -9,6 +9,7 @@
 #include "aring.h"    /* the input's ring between two callbacks: cushion, drift, resampling */
 #include "blink.h"    /* the Brick link's data channel: its frames */
 #include "blinkio.h"  /* the Brick link's data channel: sessions, audio and MIDI between Bricks */
+#include "blinkauto.h" /* the data channel managed: every Brick on the hub, or the leader, from the audio thread */
 #include "duplex.h"   /* one interface straight through ALSA: full duplex, or playback only */
 #include "link.h"     /* the clock link between Bricks over USB (the bottom port as a device) */
 #include "linkpos.h"  /* the link's position message (F0 7D 'T' 'L') */

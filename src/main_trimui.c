@@ -35,6 +35,7 @@
 #include "log.h"
 #include "perflog.h"
 #include "usbaudio.h"
+#include "blinkauto.h"
 #include "midi.h"
 #include "sticks.h"
 #include "sync.h"
@@ -131,6 +132,34 @@ static void track_peak(const int16_t *o, int frames)
     }
 }
 
+/* The sound to the Bricks on this one's hub, over the Brick link's data channel
+ * (blinkauto: each that offers it, found as it is plugged in): every block,
+ * with the music's position of its first frame, the heard position plus the
+ * output's latency, so a Brick sampling it lines it up on the beat.
+ * JD_LINK_AUDIO=0: not sent */
+static int link_audio;
+static volatile int out_lat_frames; /* the output's latency, frames (the audio clock's) */
+static void link_send(const float *stereo, int frames, uint64_t t0, int done)
+{
+    double h, pos = -1.0;
+    if (live.playing && aclock_position(t0, &h))
+        pos = h + (out_lat_frames + done) * engine_steps_per_frame();
+    bla_send(0, stereo, frames, pos);
+}
+
+/* the SDL path's blocks, as float, to the Bricks on the hub */
+static void link_send_s16(const int16_t *s, int frames, uint64_t t0)
+{
+    static float f[2 * 1024];
+    for (int done = 0; done < frames;) {
+        int n = frames - done < 1024 ? frames - done : 1024;
+        for (int i = 0; i < 2 * n; i++)
+            f[i] = s[2 * done + i] * (1.f / 32768.f);
+        link_send(f, n, t0, done);
+        done += n;
+    }
+}
+
 static void audio_cb(void *ud, Uint8 *stream, int len)
 {
     (void)ud;
@@ -155,12 +184,16 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
         int got = ahead_read((int16_t *)stream, len / 4);
         if (got < len / 4)
             aclock_silence(len / 4 - got);
+        if (link_audio)
+            link_send_s16((const int16_t *)stream, len / 4, t0);
         perf_audio_output((const int16_t *)stream, len / 4); /* JUMP: a click made here */
         track_peak((const int16_t *)stream, len / 4);
         perf_audio_end(perf_t0);
         return;
     }
     render_marked((int16_t *)stream, len / 4);
+    if (link_audio)
+        link_send_s16((const int16_t *)stream, len / 4, t0);
     perf_audio_output((const int16_t *)stream, len / 4);
     track_peak((const int16_t *)stream, len / 4);
     perf_audio_end(perf_t0);
@@ -199,6 +232,8 @@ static void bio_process(const float *in, float *out, int frames, int have_input,
         }
         for (int i = 0; i < 2 * n; i++)
             out[2 * done + i] = s[i] * (1.f / 32768.f);
+        if (link_audio)
+            link_send(out + 2 * done, n, t0, done);
         perf_audio_output(s, n); /* JUMP: a click made here */
         track_peak(s, n);
         done += n;
@@ -235,6 +270,7 @@ static void bio_latency(void)
     lock();
     aclock_init(rate, lat);
     unlock();
+    out_lat_frames = lat;
     midi_set_latency((float)(lat + (use_ahead ? ahead_frames : 0)) / rate);
     perf_log("AUDIO", "latency %.1f ms (%s): the clock out and the link timed to it", st.latency_ms,
              st.duplex ? "measured, direct" : "the buffers");
@@ -1187,6 +1223,14 @@ int main(int argc, char **argv)
         bio_latency(); /* brickio's own figure for the interface */
     if (env_int("JD_MIDI", 1))
         midi_io_start(); /* brickio's reader, the clock thread, and the Brick link on the bottom port */
+    if (!use_bio)
+        out_lat_frames = env_int("JD_SYNC_LATENCY", bufsz);
+    if (env_int("JD_LINK_AUDIO", 1)) {
+        /* the sound to every Brick on the hub that takes it (Columbia Street samples it) */
+        BlConfig bc = {.app = "JD", .name = "Jaffedrone", .rate = rate, .nports = 1};
+        bc.ports[0] = (BlinkPort){BLINK_PORT_AUDIO_OUT, 0, 2, "OUT"};
+        link_audio = bla_lead_start(&bc, NULL) == 0;
+    }
     int update_auto = env_int("JD_UPDATE", 1) != 0, update_tries = 0;
     if (update_auto) {
         net_init(CA_BUNDLE);
@@ -1230,6 +1274,18 @@ int main(int argc, char **argv)
                 if ((notes & bit) && ua_note_text(bit, nb, sizeof nb))
                     ui_notice(nb);
             bio_latency();
+        }
+        if (link_audio) { /* a Brick taking the sound, or no longer */
+            static int peers_was;
+            BlinkHello hh;
+            int np = bla_peers(&hh);
+            if (np > peers_was) {
+                char msg[48];
+                snprintf(msg, sizeof msg, "LINK AUDIO: TO %.24s", hh.name);
+                ui_notice(msg);
+                perf_log("LINK", "the sound goes to %s over the Brick link (%d Brick%s)", hh.name, np, np > 1 ? "s" : "");
+            }
+            peers_was = np;
         }
         if (use_ahead) {
             AheadStats as;
@@ -1311,6 +1367,8 @@ int main(int argc, char **argv)
 #ifdef JD_BRICKPRO
     leds_close();
 #endif
+    if (link_audio)
+        bla_stop();
     midi_io_stop(); /* STOP out, the bottom port given back */
     jdlog_close();
     perf_close();
