@@ -138,7 +138,13 @@ static void clock_tick(uint64_t t)
     if (tk_n < TK) fit_full = 0;
     float thr = (float)((tk_n < TK ? 0.05 : fit_full ? 0.15 : 0.005) * in_r);
     if (tk_n >= TK) fit_full = 1;
-    if (fabsf(bpm - H->bpm()) > thr) H->set_bpm(roundf(bpm * 1000.f) / 1000.f); /* finer while the fit fills */
+    if (fabsf(bpm - H->bpm()) > thr) {
+        /* the phase lock's integral has been carrying the old tempo's error as a speed trim: hand it over,
+         * so the speed heard doesn't change at the moment the tempo does (no wobble while it unwinds) */
+        float was = H->bpm(), now = roundf(bpm * 1000.f) / 1000.f;
+        if (was > 0.f) pll_i = fmax(-0.004, fmin(0.004, pll_i - (now / was - 1.0)));
+        H->set_bpm(now);
+    }
     if (!ext_running || !H->playing()) return;
     ticks += 1 + lost;
     in_pos += (1 + lost) * in_r / 6.0;
@@ -150,7 +156,9 @@ static void clock_tick(uint64_t t)
         return;
     }
     if (settle > 0) {
-        settle--;
+        /* the first step has played: the next tick places the app exactly, as after CONTINUE (its tempo
+         * wasn't known for the first ticks, so it can be a good part of a tick out) */
+        if (--settle == 0) snap = 1;
         return;
     }
     /* the phase: what is heard (the audio clock) should be where the clock is; trimmed gently,
@@ -161,8 +169,11 @@ static void clock_tick(uint64_t t)
         H->set_rate(1.0);
         pll_i = 0.0;
     } else {
-        /* a little integral takes up the tempo's last difference, so the tempo needn't be set again for it */
-        pll_i = fmax(-0.004, fmin(0.004, pll_i + e * 0.002));
+        /* a little integral takes up the tempo's last difference, so the tempo needn't be set again for it.
+         * Its gain is per second, not per tick (as at 120 BPM): ticks come twice as often at 240, and a
+         * gain per tick twice as strong there wound the trim up after the start and rang for seconds */
+        double k = 0.002 * fmin(2.0, tick_avg_us / 20833.3);
+        pll_i = fmax(-0.001, fmin(0.001, pll_i + e * k));
         H->set_rate(1.0 + fmax(-0.02, fmin(0.02, e * 0.05 + pll_i)));
     }
 }
